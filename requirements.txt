@@ -1,0 +1,5 @@
+arcade
+gymnasium
+stable-baselines3
+numpy
+sb3-contrib
