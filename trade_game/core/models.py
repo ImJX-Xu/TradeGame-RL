@@ -41,6 +41,13 @@ class GameMode(StrEnum):
     CHALLENGE = "challenge"
 
 
+class GameEndReason(StrEnum):
+    """终局的领域原因。"""
+
+    BANKRUPTCY = "bankruptcy"
+    TIME_LIMIT = "time_limit"
+
+
 @dataclass(frozen=True, slots=True)
 class City:
     """静态城市资料。城市名称是当前版本中的稳定标识。"""
@@ -119,6 +126,14 @@ class Loan:
 
 
 @dataclass(frozen=True, slots=True)
+class GameOutcome:
+    """已结束对局的结算结果。"""
+
+    reason: GameEndReason
+    final_assets: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class PlayerState:
     """玩家的可变游戏状态快照。"""
 
@@ -150,3 +165,4 @@ class GameState:
     loans: tuple[Loan, ...]
     visited_cities: frozenset[str]
     loss_by_product: Mapping[str, int]
+    outcome: GameOutcome | None = None

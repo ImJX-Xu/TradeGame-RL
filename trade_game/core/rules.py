@@ -39,6 +39,15 @@ class PricingRules:
 
 
 @dataclass(frozen=True, slots=True)
+class MarketRules:
+    lambda_alpha_adjustment: Decimal
+    lambda_sigma_adjustment: Decimal
+    high_consumption_range_multiplier: Decimal
+    high_consumption_alpha_multiplier: Decimal
+    high_consumption_sigma_multiplier: Decimal
+
+
+@dataclass(frozen=True, slots=True)
 class TransportModeRules:
     speed_km_per_day: int
     cost_per_km: Decimal
@@ -75,6 +84,18 @@ class VehicleRules:
     capacity_per_vehicle: int
     repair_cost_per_percent: Decimal
     repair_days: int
+    daily_labor_cost_per_extra_truck: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class FinanceRules:
+    daily_interest_rate: Decimal
+    loan_asset_multiplier: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class SettlementRules:
+    additional_truck_residual_value: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,8 +107,11 @@ class GameRules:
     initial: InitialStateRules
     limits: GameLimits
     pricing: PricingRules
+    market: MarketRules
     transport: TransportRules
     vehicles: VehicleRules
+    finance: FinanceRules
+    settlement: SettlementRules
 
 
 def load_default_game_rules(catalog: Catalog) -> GameRules:
@@ -107,15 +131,32 @@ def load_game_rules(catalog: Catalog, path: Path) -> GameRules:
     except tomllib.TOMLDecodeError as error:
         raise GameRulesError(f"{path.name} TOML 格式错误：{error}") from error
 
-    _expect_exact_keys(raw, {"schema_version", "balance_version", "game", "pricing", "transport", "vehicles"}, "根配置")
+    _expect_exact_keys(
+        raw,
+        {
+            "schema_version",
+            "balance_version",
+            "game",
+            "pricing",
+            "market",
+            "transport",
+            "vehicles",
+            "finance",
+            "settlement",
+        },
+        "根配置",
+    )
     schema_version = _integer(raw["schema_version"], "schema_version", minimum=1)
     if schema_version != 1:
         raise GameRulesError(f"不支持的 rules.toml 版本：{schema_version}")
     balance_version = _text(raw["balance_version"], "balance_version")
     game = _mapping(raw["game"], "game")
     pricing = _mapping(raw["pricing"], "pricing")
+    market = _mapping(raw["market"], "market")
     transport = _mapping(raw["transport"], "transport")
     vehicles = _mapping(raw["vehicles"], "vehicles")
+    finance = _mapping(raw["finance"], "finance")
+    settlement = _mapping(raw["settlement"], "settlement")
 
     initial, limits = _parse_game(game, catalog)
     return GameRules(
@@ -124,8 +165,11 @@ def load_game_rules(catalog: Catalog, path: Path) -> GameRules:
         initial=initial,
         limits=limits,
         pricing=_parse_pricing(pricing),
+        market=_parse_market(market),
         transport=_parse_transport(transport),
         vehicles=_parse_vehicles(vehicles),
+        finance=_parse_finance(finance),
+        settlement=_parse_settlement(settlement),
     )
 
 
@@ -171,6 +215,43 @@ def _parse_pricing(raw: Mapping[str, Any]) -> PricingRules:
         ),
         remote_sale_multiplier_min=minimum,
         remote_sale_multiplier_max=maximum,
+    )
+
+
+def _parse_market(raw: Mapping[str, Any]) -> MarketRules:
+    _expect_exact_keys(
+        raw,
+        {
+            "lambda_alpha_adjustment",
+            "lambda_sigma_adjustment",
+            "high_consumption_range_multiplier",
+            "high_consumption_alpha_multiplier",
+            "high_consumption_sigma_multiplier",
+        },
+        "market",
+    )
+    return MarketRules(
+        lambda_alpha_adjustment=_decimal(
+            raw["lambda_alpha_adjustment"], "market.lambda_alpha_adjustment", minimum=Decimal("0")
+        ),
+        lambda_sigma_adjustment=_decimal(
+            raw["lambda_sigma_adjustment"], "market.lambda_sigma_adjustment", minimum=Decimal("0")
+        ),
+        high_consumption_range_multiplier=_decimal(
+            raw["high_consumption_range_multiplier"],
+            "market.high_consumption_range_multiplier",
+            minimum=Decimal("1"),
+        ),
+        high_consumption_alpha_multiplier=_decimal(
+            raw["high_consumption_alpha_multiplier"],
+            "market.high_consumption_alpha_multiplier",
+            minimum=Decimal("0"),
+        ),
+        high_consumption_sigma_multiplier=_decimal(
+            raw["high_consumption_sigma_multiplier"],
+            "market.high_consumption_sigma_multiplier",
+            minimum=Decimal("0"),
+        ),
     )
 
 
@@ -257,12 +338,46 @@ def _parse_transport_mode(raw: Mapping[str, Any], name: str) -> TransportModeRul
 
 
 def _parse_vehicles(raw: Mapping[str, Any]) -> VehicleRules:
-    _expect_exact_keys(raw, {"purchase_price", "capacity_per_vehicle", "repair_cost_per_percent", "repair_days"}, "vehicles")
+    _expect_exact_keys(
+        raw,
+        {
+            "purchase_price",
+            "capacity_per_vehicle",
+            "repair_cost_per_percent",
+            "repair_days",
+            "daily_labor_cost_per_extra_truck",
+        },
+        "vehicles",
+    )
     return VehicleRules(
         purchase_price=_decimal(raw["purchase_price"], "vehicles.purchase_price", minimum=Decimal("0")),
         capacity_per_vehicle=_integer(raw["capacity_per_vehicle"], "vehicles.capacity_per_vehicle", minimum=1),
         repair_cost_per_percent=_decimal(raw["repair_cost_per_percent"], "vehicles.repair_cost_per_percent", minimum=Decimal("0")),
         repair_days=_integer(raw["repair_days"], "vehicles.repair_days", minimum=1),
+        daily_labor_cost_per_extra_truck=_decimal(
+            raw["daily_labor_cost_per_extra_truck"],
+            "vehicles.daily_labor_cost_per_extra_truck",
+            minimum=Decimal("0"),
+        ),
+    )
+
+
+def _parse_finance(raw: Mapping[str, Any]) -> FinanceRules:
+    _expect_exact_keys(raw, {"daily_interest_rate", "loan_asset_multiplier"}, "finance")
+    return FinanceRules(
+        daily_interest_rate=_decimal(raw["daily_interest_rate"], "finance.daily_interest_rate", minimum=Decimal("0")),
+        loan_asset_multiplier=_decimal(raw["loan_asset_multiplier"], "finance.loan_asset_multiplier", minimum=Decimal("0")),
+    )
+
+
+def _parse_settlement(raw: Mapping[str, Any]) -> SettlementRules:
+    _expect_exact_keys(raw, {"additional_truck_residual_value"}, "settlement")
+    return SettlementRules(
+        additional_truck_residual_value=_decimal(
+            raw["additional_truck_residual_value"],
+            "settlement.additional_truck_residual_value",
+            minimum=Decimal("0"),
+        )
     )
 
 

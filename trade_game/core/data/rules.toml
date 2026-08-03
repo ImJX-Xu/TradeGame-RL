@@ -1,5 +1,5 @@
 schema_version = 1
-balance_version = "1.0.0"
+balance_version = "1.1.0"
 
 [game]
 initial_cash = "1000"
@@ -14,6 +14,13 @@ challenge_max_days = 150
 high_consumption_multiplier = "1.20"
 remote_sale_multiplier_min = "1"
 remote_sale_multiplier_max = "1.5"
+
+[market]
+lambda_alpha_adjustment = "0.60"
+lambda_sigma_adjustment = "2.00"
+high_consumption_range_multiplier = "1.50"
+high_consumption_alpha_multiplier = "0.90"
+high_consumption_sigma_multiplier = "1.30"
 
 [transport]
 fast_cost_multiplier = "3"
@@ -49,3 +56,11 @@ purchase_price = "40000"
 capacity_per_vehicle = 100
 repair_cost_per_percent = "100"
 repair_days = 7
+daily_labor_cost_per_extra_truck = "50"
+
+[finance]
+daily_interest_rate = "0.001"
+loan_asset_multiplier = "1.00"
+
+[settlement]
+additional_truck_residual_value = "40000"

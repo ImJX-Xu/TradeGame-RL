@@ -15,11 +15,14 @@ from .commands import (
     Travel,
 )
 from .inventory import add_cargo, cargo_quantity, free_capacity, remove_cargo_fifo
+from .finance import assessed_assets, available_credit, borrow, repay, total_debt, total_principal
 from .models import (
     CargoLot,
     City,
     CityProductKey,
+    GameEndReason,
     GameMode,
+    GameOutcome,
     GameState,
     Loan,
     MarketState,
@@ -33,11 +36,14 @@ from .models import (
 from .price_functions import can_purchase, money, price_lambda, purchase_unit_price, sale_unit_price, trade_total
 from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
 from .rules import (
+    FinanceRules,
     GameLimits,
     GameRules,
     GameRulesError,
     InitialStateRules,
+    MarketRules,
     PricingRules,
+    SettlementRules,
     TransportLossRules,
     TransportModeRules,
     TransportRules,
@@ -45,7 +51,10 @@ from .rules import (
     load_default_game_rules,
     load_game_rules,
 )
+from .session import GameSession, create_game_session
+from .settlement import conclude_if_needed, is_bankrupt, settlement_assets
 from .setup import create_initial_state
+from .timeflow import settle_elapsed_days
 from .trading import buy, sell
 from .transport import (
     RouteNotFound,
@@ -73,14 +82,19 @@ __all__ = [
     "CommandType",
     "CommandValidationError",
     "GameEvent",
+    "GameEndReason",
     "GameLimits",
     "GameMode",
+    "GameOutcome",
     "GameRules",
     "GameRulesError",
     "GameState",
+    "GameSession",
+    "FinanceRules",
     "InitialStateRules",
     "Loan",
     "MarketState",
+    "MarketRules",
     "NextDay",
     "PlayerState",
     "PricingRules",
@@ -92,6 +106,7 @@ __all__ = [
     "Route",
     "RouteNotFound",
     "Sell",
+    "SettlementRules",
     "SpecialtyScope",
     "TransportLossRules",
     "TransportMode",
@@ -101,12 +116,18 @@ __all__ = [
     "TravelQuote",
     "VehicleRules",
     "add_cargo",
+    "assessed_assets",
+    "available_credit",
+    "borrow",
     "buy",
     "buy_truck",
     "can_purchase",
     "cargo_quantity",
+    "conclude_if_needed",
     "create_initial_state",
+    "create_game_session",
     "free_capacity",
+    "is_bankrupt",
     "load_catalog",
     "load_default_catalog",
     "load_default_game_rules",
@@ -116,12 +137,17 @@ __all__ = [
     "purchase_unit_price",
     "quote_travel",
     "remote_sale_distance_multiplier",
+    "repay",
     "remove_cargo_fifo",
     "repair_truck",
     "sale_unit_price",
+    "settlement_assets",
+    "settle_elapsed_days",
     "sell",
     "shortest_distance",
     "shortest_distance_any",
     "trade_total",
+    "total_debt",
+    "total_principal",
     "travel",
 ]

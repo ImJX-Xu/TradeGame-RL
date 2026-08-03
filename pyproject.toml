@@ -23,4 +23,4 @@ addopts = "-ra"
 include = ["trade_game*"]
 
 [tool.setuptools.package-data]
-"trade_game.core.data" = ["*.csv"]
+"trade_game.core.data" = ["*.csv", "*.toml"]
