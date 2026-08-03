@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+
+# 本地验证代码
+tests/
+
+# Runtime artifacts
+runs/
+checkpoints/
+saves/
+*.pt
+*.pth
+*.npz
+
+# Local configuration
+.env
+!.env.example
+
+# Editors and operating system files
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
