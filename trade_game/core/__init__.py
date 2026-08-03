@@ -34,6 +34,16 @@ from .price_functions import can_purchase, money, price_lambda, purchase_unit_pr
 from .setup import DEFAULT_NEW_GAME_CONFIG, NewGameConfig, create_initial_state
 from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
 from .trading import buy, sell
+from .transport import (
+    RouteNotFound,
+    TravelQuote,
+    quote_travel,
+    remote_sale_distance_multiplier,
+    shortest_distance,
+    shortest_distance_any,
+    travel,
+)
+from .vehicles import buy_truck, repair_truck
 
 __all__ = [
     "Catalog",
@@ -60,6 +70,7 @@ __all__ = [
     "Product",
     "ProductCategory",
     "Route",
+    "RouteNotFound",
     "GameEvent",
     "RejectionCode",
     "RepairTruck",
@@ -68,8 +79,10 @@ __all__ = [
     "SpecialtyScope",
     "TransportMode",
     "Travel",
+    "TravelQuote",
     "add_cargo",
     "buy",
+    "buy_truck",
     "can_purchase",
     "cargo_quantity",
     "create_initial_state",
@@ -80,7 +93,13 @@ __all__ = [
     "price_lambda",
     "purchase_unit_price",
     "remove_cargo_fifo",
+    "remote_sale_distance_multiplier",
+    "repair_truck",
     "sale_unit_price",
     "sell",
+    "shortest_distance",
+    "shortest_distance_any",
     "trade_total",
+    "travel",
+    "quote_travel",
 ]

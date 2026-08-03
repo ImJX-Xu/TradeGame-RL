@@ -10,6 +10,7 @@ from .inventory import add_cargo, cargo_quantity, free_capacity, remove_cargo_fi
 from .models import CargoLot, GameState
 from .price_functions import purchase_unit_price, sale_unit_price, trade_total
 from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
+from .transport import remote_sale_distance_multiplier
 
 
 def buy(catalog: Catalog, state: GameState, command: Buy) -> CommandResult:
@@ -64,7 +65,13 @@ def sell(catalog: Catalog, state: GameState, command: Sell) -> CommandResult:
         return _reject(command, state, RejectionCode.NOT_ALLOWED, "持有商品数量不足")
 
     city_name = state.player.location
-    unit_price = sale_unit_price(catalog, state, command.product_id, city_name)
+    unit_price = sale_unit_price(
+        catalog,
+        state,
+        command.product_id,
+        city_name,
+        remote_distance_multiplier=remote_sale_distance_multiplier(catalog, catalog.product(command.product_id), city_name),
+    )
     total = trade_total(unit_price, command.quantity)
     cargo_lots, _removed_lots = remove_cargo_fifo(
         state.player.cargo_lots, command.product_id, command.quantity
