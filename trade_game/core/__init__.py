@@ -16,6 +16,7 @@ from .commands import (
 )
 from .models import (
     CargoLot,
+    CityProductKey,
     City,
     GameMode,
     GameState,
@@ -28,8 +29,11 @@ from .models import (
     SpecialtyScope,
     TransportMode,
 )
+from .inventory import add_cargo, cargo_quantity, free_capacity, remove_cargo_fifo
+from .price_functions import can_purchase, money, price_lambda, purchase_unit_price, sale_unit_price, trade_total
 from .setup import DEFAULT_NEW_GAME_CONFIG, NewGameConfig, create_initial_state
 from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
+from .trading import buy, sell
 
 __all__ = [
     "Catalog",
@@ -37,6 +41,7 @@ __all__ = [
     "Borrow",
     "Buy",
     "BuyTruck",
+    "CityProductKey",
     "CargoLot",
     "Command",
     "CommandRejection",
@@ -63,7 +68,19 @@ __all__ = [
     "SpecialtyScope",
     "TransportMode",
     "Travel",
+    "add_cargo",
+    "buy",
+    "can_purchase",
+    "cargo_quantity",
     "create_initial_state",
+    "free_capacity",
     "load_catalog",
     "load_default_catalog",
+    "money",
+    "price_lambda",
+    "purchase_unit_price",
+    "remove_cargo_fifo",
+    "sale_unit_price",
+    "sell",
+    "trade_total",
 ]

@@ -32,7 +32,14 @@ def create_initial_state(
     """创建零库存、零贷款、零价格扰动的全新游戏状态。"""
 
     _validate_config(catalog, config)
-    zero_lambdas = MappingProxyType({product_id: Decimal("0") for product_id in catalog.products})
+    # 价格波动由城市和商品共同决定，不能把不同城市的市场价格混为一项。
+    zero_lambdas = MappingProxyType(
+        {
+            (city_name, product_id): Decimal("0")
+            for city_name in catalog.cities
+            for product_id in catalog.products
+        }
+    )
     return GameState(
         player=PlayerState(
             cash=config.initial_cash,

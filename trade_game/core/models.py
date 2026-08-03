@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
-from typing import Mapping
+from typing import Mapping, TypeAlias
+
+
+CityProductKey: TypeAlias = tuple[str, str]
 
 
 class TransportMode(StrEnum):
@@ -92,6 +95,18 @@ class CargoLot:
     shelf_life_remaining_days: int | None
     age_days: int = 0
 
+    def __post_init__(self) -> None:
+        if not self.product_id.strip():
+            raise ValueError("货物批次的商品 ID 不能为空")
+        if self.quantity <= 0:
+            raise ValueError("货物批次数量必须大于 0")
+        if not self.origin_city.strip():
+            raise ValueError("货物批次的产地不能为空")
+        if self.shelf_life_remaining_days is not None and self.shelf_life_remaining_days <= 0:
+            raise ValueError("货物批次的剩余保质期必须大于 0")
+        if self.age_days < 0:
+            raise ValueError("货物批次年龄不能为负")
+
 
 @dataclass(frozen=True, slots=True)
 class Loan:
@@ -119,8 +134,8 @@ class PlayerState:
 class MarketState:
     """市场状态；价格规则只在后续阶段消费这些数据。"""
 
-    current_lambdas: Mapping[str, Decimal]
-    previous_lambdas: Mapping[str, Decimal]
+    current_lambdas: Mapping[CityProductKey, Decimal]
+    previous_lambdas: Mapping[CityProductKey, Decimal]
 
 
 @dataclass(frozen=True, slots=True)
