@@ -1,0 +1,51 @@
+schema_version = 1
+balance_version = "1.0.0"
+
+[game]
+initial_cash = "1000"
+initial_location = "郑州"
+initial_day = 1
+initial_truck_count = 1
+initial_truck_capacity = 100
+initial_truck_durability = "100"
+challenge_max_days = 150
+
+[pricing]
+high_consumption_multiplier = "1.20"
+remote_sale_multiplier_min = "1"
+remote_sale_multiplier_max = "1.5"
+
+[transport]
+fast_cost_multiplier = "3"
+fast_time_divisor = 3
+truck_min_durability = "30"
+truck_durability_loss_per_km = "0.001"
+truck_damage_time_multiplier = "0.5"
+
+[transport.land]
+speed_km_per_day = 400
+cost_per_km = "0.15"
+travel_day_standard_deviation = "0.15"
+travel_day_min_factor = "0.55"
+travel_day_max_factor = "1.45"
+
+[transport.sea]
+speed_km_per_day = 250
+cost_per_km = "0.60"
+travel_day_standard_deviation = "0.20"
+travel_day_min_factor = "0.40"
+travel_day_max_factor = "1.60"
+
+[transport.loss]
+reference_km = "2000"
+reference_days = "5"
+random_factor_min = "0.9"
+random_factor_max = "1.1"
+normal_distance_divisor = "3"
+perishable_aging_day_scale = "10"
+
+[vehicles]
+purchase_price = "40000"
+capacity_per_vehicle = 100
+repair_cost_per_percent = "100"
+repair_days = 7

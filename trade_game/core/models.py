@@ -68,6 +68,7 @@ class Product:
     specialty_scope: SpecialtyScope
     specialty_region: str | None
     perishable_shelf_life_days: int | None
+    perishable_aging_strength: Decimal | None
     lambda_min: Decimal
     lambda_max: Decimal
     lambda_alpha: Decimal

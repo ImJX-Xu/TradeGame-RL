@@ -6,10 +6,10 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from .catalog import Catalog
 from .models import GameState, Product
+from .rules import GameRules
 
 
 MONEY_QUANTUM = Decimal("0.01")
-HIGH_CONSUMPTION_MULTIPLIER = Decimal("1.20")
 
 
 def money(value: Decimal) -> Decimal:
@@ -30,7 +30,9 @@ def price_lambda(state: GameState, city_name: str, product_id: str) -> Decimal:
     return state.market.current_lambdas[(city_name, product_id)]
 
 
-def purchase_unit_price(catalog: Catalog, state: GameState, product_id: str, city_name: str) -> Decimal:
+def purchase_unit_price(
+    catalog: Catalog, rules: GameRules, state: GameState, product_id: str, city_name: str
+) -> Decimal:
     """计算当前城市采购一单位商品的价格。"""
 
     product = catalog.product(product_id)
@@ -43,6 +45,7 @@ def purchase_unit_price(catalog: Catalog, state: GameState, product_id: str, cit
 
 def sale_unit_price(
     catalog: Catalog,
+    rules: GameRules,
     state: GameState,
     product_id: str,
     city_name: str,
@@ -63,7 +66,7 @@ def sale_unit_price(
         price *= Decimal("1") + product.profit_margin_rate
         price *= remote_distance_multiplier
         if city.is_high_consumption:
-            price *= HIGH_CONSUMPTION_MULTIPLIER
+            price *= rules.pricing.high_consumption_multiplier
     return _positive_money(price, product_id, city_name)
 
 

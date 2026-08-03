@@ -10,10 +10,11 @@ from .inventory import add_cargo, cargo_quantity, free_capacity, remove_cargo_fi
 from .models import CargoLot, GameState
 from .price_functions import purchase_unit_price, sale_unit_price, trade_total
 from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
+from .rules import GameRules
 from .transport import remote_sale_distance_multiplier
 
 
-def buy(catalog: Catalog, state: GameState, command: Buy) -> CommandResult:
+def buy(catalog: Catalog, rules: GameRules, state: GameState, command: Buy) -> CommandResult:
     """执行采购；失败时返回原状态且不产生副作用。"""
 
     if command.product_id not in catalog.products:
@@ -25,7 +26,7 @@ def buy(catalog: Catalog, state: GameState, command: Buy) -> CommandResult:
     if command.quantity > free_capacity(state.player.cargo_lots, state.player.truck_total_capacity):
         return _reject(command, state, RejectionCode.INSUFFICIENT_CAPACITY, "货车剩余容量不足")
 
-    unit_price = purchase_unit_price(catalog, state, command.product_id, city_name)
+    unit_price = purchase_unit_price(catalog, rules, state, command.product_id, city_name)
     total = trade_total(unit_price, command.quantity)
     if state.player.cash < total:
         return _reject(command, state, RejectionCode.INSUFFICIENT_CASH, "现金不足")
@@ -56,7 +57,7 @@ def buy(catalog: Catalog, state: GameState, command: Buy) -> CommandResult:
     )
 
 
-def sell(catalog: Catalog, state: GameState, command: Sell) -> CommandResult:
+def sell(catalog: Catalog, rules: GameRules, state: GameState, command: Sell) -> CommandResult:
     """执行精确数量的售卖；库存不足时拒绝而非部分成交。"""
 
     if command.product_id not in catalog.products:
@@ -67,10 +68,13 @@ def sell(catalog: Catalog, state: GameState, command: Sell) -> CommandResult:
     city_name = state.player.location
     unit_price = sale_unit_price(
         catalog,
+        rules,
         state,
         command.product_id,
         city_name,
-        remote_distance_multiplier=remote_sale_distance_multiplier(catalog, catalog.product(command.product_id), city_name),
+        remote_distance_multiplier=remote_sale_distance_multiplier(
+            catalog, rules, catalog.product(command.product_id), city_name
+        ),
     )
     total = trade_total(unit_price, command.quantity)
     cargo_lots, _removed_lots = remove_cargo_fifo(

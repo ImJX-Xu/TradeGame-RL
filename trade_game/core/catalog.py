@@ -26,20 +26,14 @@ class Catalog:
     routes: tuple[Route, ...]
 
     def city(self, name: str) -> City:
-        """按名称查询城市，不存在时给出明确错误。"""
+        """按名称查询城市。内部缺失时直接抛出 KeyError。"""
 
-        try:
-            return self.cities[name]
-        except KeyError as error:
-            raise KeyError(f"未知城市：{name}") from error
+        return self.cities[name]
 
     def product(self, product_id: str) -> Product:
-        """按 ID 查询商品，不存在时给出明确错误。"""
+        """按 ID 查询商品。内部缺失时直接抛出 KeyError。"""
 
-        try:
-            return self.products[product_id]
-        except KeyError as error:
-            raise KeyError(f"未知商品：{product_id}") from error
+        return self.products[product_id]
 
 
 _CITY_COLUMNS = frozenset(
@@ -65,6 +59,7 @@ _PRODUCT_COLUMNS = frozenset(
         "specialty_scope",
         "specialty_region",
         "perishable_shelf_life_days",
+        "perishable_aging_strength",
         "lambda_min",
         "lambda_max",
         "lambda_alpha",
@@ -200,6 +195,12 @@ def _load_products(path: Path) -> dict[str, Product]:
         )
         if shelf_life is not None and shelf_life <= 0:
             raise CatalogDataError(f"{path.name}:{line} 的保质期必须大于 0")
+        aging_strength_raw = row["perishable_aging_strength"].strip()
+        aging_strength = (
+            _decimal(aging_strength_raw, path, line, "perishable_aging_strength")
+            if aging_strength_raw
+            else None
+        )
         origins = frozenset(part.strip() for part in _value(row, "origins", path, line).split(";") if part.strip())
         region = row["specialty_region"].strip() or None
         if scope is SpecialtyScope.REGION and region is None:
@@ -220,6 +221,7 @@ def _load_products(path: Path) -> dict[str, Product]:
             specialty_scope=scope,
             specialty_region=region,
             perishable_shelf_life_days=shelf_life,
+            perishable_aging_strength=aging_strength,
             lambda_min=_decimal(_value(row, "lambda_min", path, line), path, line, "lambda_min"),
             lambda_max=_decimal(_value(row, "lambda_max", path, line), path, line, "lambda_max"),
             lambda_alpha=_decimal(_value(row, "lambda_alpha", path, line), path, line, "lambda_alpha"),
@@ -236,6 +238,10 @@ def _load_products(path: Path) -> dict[str, Product]:
             raise CatalogDataError(f"{path.name}:{line} 的 lambda_min 不能大于 lambda_max")
         if not Decimal("0") <= product.transport_loss_rate <= Decimal("1"):
             raise CatalogDataError(f"{path.name}:{line} 的 transport_loss_rate 必须在 0 到 1 之间")
+        if category is ProductCategory.PERISHABLE and (aging_strength is None or aging_strength <= 0):
+            raise CatalogDataError(f"{path.name}:{line} 的易腐商品必须指定正的 perishable_aging_strength")
+        if category is not ProductCategory.PERISHABLE and aging_strength is not None:
+            raise CatalogDataError(f"{path.name}:{line} 的非易腐商品不能指定 perishable_aging_strength")
         products[product_id] = product
     if not products:
         raise CatalogDataError(f"{path.name} 至少需要一个商品")

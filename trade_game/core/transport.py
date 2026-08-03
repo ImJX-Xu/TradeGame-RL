@@ -14,31 +14,7 @@ from .inventory import cargo_quantity
 from .models import CargoLot, GameState, Product, ProductCategory, TransportMode
 from .price_functions import money
 from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
-
-
-# 这些平衡参数将在下一阶段迁入 rules.toml；此处集中定义以保证规则没有散落常量。
-LAND_COST_PER_KM = Decimal("0.15")
-SEA_COST_PER_KM = Decimal("0.60")
-LAND_SPEED_KM_PER_DAY = 400
-SEA_SPEED_KM_PER_DAY = 250
-FAST_TRAVEL_COST_MULTIPLIER = Decimal("3")
-FAST_TRAVEL_TIME_DIVISOR = 3
-TRUCK_MIN_DURABILITY_FOR_TRAVEL = Decimal("30")
-TRUCK_DURABILITY_LOSS_PER_KM = Decimal("0.001")
-REMOTE_SALE_MULTIPLIER_MIN = Decimal("1")
-REMOTE_SALE_MULTIPLIER_MAX = Decimal("1.5")
-
-_LOSS_REF_KM = Decimal("2000")
-_LOSS_REF_DAYS = Decimal("5")
-_LOSS_RANDOM_FACTOR_MIN = Decimal("0.9")
-_LOSS_RANDOM_FACTOR_MAX = Decimal("1.1")
-_PERISHABLE_AGING_STRENGTH = {
-    "fz_fish": Decimal("3"),
-    "hn_mango": Decimal("4.5"),
-    "ks_pineapple": Decimal("5.5"),
-    "island_candy": Decimal("5.5"),
-    "db_mushroom": Decimal("7.5"),
-}
+from .rules import GameRules
 
 
 class RouteNotFound(ValueError):
@@ -109,7 +85,9 @@ def shortest_distance_any(catalog: Catalog, origin: str, destination: str) -> in
     raise RuntimeError(f"静态路线图不连通：{origin} -> {destination}")
 
 
-def remote_sale_distance_multiplier(catalog: Catalog, product: Product, city_name: str) -> Decimal:
+def remote_sale_distance_multiplier(
+    catalog: Catalog, rules: GameRules, product: Product, city_name: str
+) -> Decimal:
     """按产地到销售城市的最远最短路径距离计算异地销售乘数。"""
 
     if city_name in product.origins:
@@ -123,14 +101,16 @@ def remote_sale_distance_multiplier(catalog: Catalog, product: Product, city_nam
     maximum = max(all_distances)
     distance = max(shortest_distance_any(catalog, origin, city_name) for origin in product.origins)
     if maximum == minimum:
-        return REMOTE_SALE_MULTIPLIER_MIN
+        return rules.pricing.remote_sale_multiplier_min
     ratio = Decimal(distance - minimum) / Decimal(maximum - minimum)
-    return REMOTE_SALE_MULTIPLIER_MIN + ratio * (
-        REMOTE_SALE_MULTIPLIER_MAX - REMOTE_SALE_MULTIPLIER_MIN
+    return rules.pricing.remote_sale_multiplier_min + ratio * (
+        rules.pricing.remote_sale_multiplier_max - rules.pricing.remote_sale_multiplier_min
     )
 
 
-def quote_travel(catalog: Catalog, state: GameState, command: Travel, rng: Random) -> TravelQuote:
+def quote_travel(
+    catalog: Catalog, rules: GameRules, state: GameState, command: Travel, rng: Random
+) -> TravelQuote:
     """根据当前状态和随机源生成一次旅行报价。"""
 
     origin = state.player.location
@@ -141,25 +121,36 @@ def quote_travel(catalog: Catalog, state: GameState, command: Travel, rng: Rando
         raise RouteNotFound("目标城市不能是当前位置")
     if command.mode not in catalog.city(origin).modes or command.mode not in catalog.city(destination).modes:
         raise RouteNotFound("起点或终点不支持所选运输方式")
-    if command.mode is TransportMode.LAND and state.player.truck_durability <= TRUCK_MIN_DURABILITY_FOR_TRAVEL:
-        raise RouteNotFound(f"货车耐久度不高于 {TRUCK_MIN_DURABILITY_FOR_TRAVEL}%")
+    if command.mode is TransportMode.LAND and state.player.truck_durability <= rules.transport.truck_min_durability:
+        raise RouteNotFound(f"货车耐久度不高于 {rules.transport.truck_min_durability}%")
 
     distance = shortest_distance(catalog, origin, destination, command.mode)
-    days = _sample_travel_days(command.mode, distance, rng)
+    days = _sample_travel_days(rules, command.mode, distance, rng)
     truck_damage_ratio = Decimal("0")
     truck_durability_loss = Decimal("0")
     if command.mode is TransportMode.LAND:
         truck_damage_ratio = (Decimal("100") - state.player.truck_durability) / Decimal("100")
-        days = max(1, int(round(days * float(Decimal("1") + Decimal("0.5") * truck_damage_ratio))))
-        truck_durability_loss = Decimal(distance) * TRUCK_DURABILITY_LOSS_PER_KM
-        cost = Decimal(distance) * LAND_COST_PER_KM * state.player.truck_count
+        days = max(
+            1,
+            int(
+                round(
+                    days
+                    * float(
+                        Decimal("1")
+                        + rules.transport.truck_damage_time_multiplier * truck_damage_ratio
+                    )
+                )
+            ),
+        )
+        truck_durability_loss = Decimal(distance) * rules.transport.truck_durability_loss_per_km
+        cost = Decimal(distance) * rules.transport.land.cost_per_km * state.player.truck_count
     else:
         capacity = state.player.truck_total_capacity
         load_multiplier = Decimal("1") + Decimal(cargo_quantity(state.player.cargo_lots)) / Decimal(capacity)
-        cost = Decimal(distance) * SEA_COST_PER_KM * load_multiplier
+        cost = Decimal(distance) * rules.transport.sea.cost_per_km * load_multiplier
     if command.fast:
-        days = max(1, days // FAST_TRAVEL_TIME_DIVISOR)
-        cost *= FAST_TRAVEL_COST_MULTIPLIER
+        days = max(1, days // rules.transport.fast_time_divisor)
+        cost *= rules.transport.fast_cost_multiplier
     return TravelQuote(
         origin=origin,
         destination=destination,
@@ -172,18 +163,20 @@ def quote_travel(catalog: Catalog, state: GameState, command: Travel, rng: Rando
     )
 
 
-def travel(catalog: Catalog, state: GameState, command: Travel, rng: Random) -> CommandResult:
+def travel(
+    catalog: Catalog, rules: GameRules, state: GameState, command: Travel, rng: Random
+) -> CommandResult:
     """执行一次旅行，扣除成本、更新地点、耐久和运输货损。"""
 
     try:
-        quote = quote_travel(catalog, state, command, rng)
+        quote = quote_travel(catalog, rules, state, command, rng)
     except RouteNotFound as error:
         return _reject(command, state, RejectionCode.NOT_ALLOWED, str(error))
     if state.player.cash < quote.cost:
         return _reject(command, state, RejectionCode.INSUFFICIENT_CASH, "现金不足以支付运输成本")
 
     cargo_lots, lost_by_product = _apply_transport_loss(
-        catalog, state.player.cargo_lots, quote, rng
+        catalog, rules, state.player.cargo_lots, quote, rng
     )
     updated_losses = dict(state.loss_by_product)
     for product_id, quantity in lost_by_product.items():
@@ -230,25 +223,28 @@ def _route_graph(catalog: Catalog, mode: TransportMode | None) -> dict[str, tupl
     return {city_name: tuple(edges) for city_name, edges in graph.items()}
 
 
-def _sample_travel_days(mode: TransportMode, distance_km: int, rng: Random) -> int:
-    speed = LAND_SPEED_KM_PER_DAY if mode is TransportMode.LAND else SEA_SPEED_KM_PER_DAY
-    base_days = max(1, ceil(distance_km / speed))
-    standard_deviation = 0.15 if mode is TransportMode.LAND else 0.20
-    minimum_factor = 0.55 if mode is TransportMode.LAND else 0.40
-    maximum_factor = 1.45 if mode is TransportMode.LAND else 1.60
-    factor = min(maximum_factor, max(minimum_factor, 1.0 + rng.gauss(0.0, standard_deviation)))
+def _sample_travel_days(rules: GameRules, mode: TransportMode, distance_km: int, rng: Random) -> int:
+    mode_rules = rules.transport.land if mode is TransportMode.LAND else rules.transport.sea
+    base_days = max(1, ceil(distance_km / mode_rules.speed_km_per_day))
+    factor = min(
+        float(mode_rules.travel_day_max_factor),
+        max(
+            float(mode_rules.travel_day_min_factor),
+            1.0 + rng.gauss(0.0, float(mode_rules.travel_day_standard_deviation)),
+        ),
+    )
     return max(1, ceil(base_days * factor))
 
 
 def _apply_transport_loss(
-    catalog: Catalog, lots: tuple[CargoLot, ...], quote: TravelQuote, rng: Random
+    catalog: Catalog, rules: GameRules, lots: tuple[CargoLot, ...], quote: TravelQuote, rng: Random
 ) -> tuple[tuple[CargoLot, ...], dict[str, int]]:
     retained: list[CargoLot] = []
     losses: dict[str, int] = {}
     damage_ratio = quote.truck_damage_ratio if quote.mode is TransportMode.LAND else Decimal("0")
     for lot in lots:
         product = catalog.product(lot.product_id)
-        probability = _transport_loss_probability(product, quote, rng)
+        probability = _transport_loss_probability(rules, product, quote, rng)
         if quote.mode is TransportMode.LAND and damage_ratio > 0:
             probability = min(Decimal("1"), probability + product.transport_loss_rate * damage_ratio)
         lost = _sample_binomial(lot.quantity, probability, rng)
@@ -259,19 +255,23 @@ def _apply_transport_loss(
     return tuple(retained), losses
 
 
-def _transport_loss_probability(product: Product, quote: TravelQuote, rng: Random) -> Decimal:
+def _transport_loss_probability(rules: GameRules, product: Product, quote: TravelQuote, rng: Random) -> Decimal:
     distance = Decimal(quote.distance_km)
     days = Decimal(quote.days)
     if product.category is ProductCategory.ELECTRONICS:
-        multiplier = Decimal("1") + distance / _LOSS_REF_KM
+        multiplier = Decimal("1") + distance / rules.transport.loss.reference_km
     elif product.category is ProductCategory.PERISHABLE:
-        multiplier = Decimal("1") + days / _LOSS_REF_DAYS
-        strength = _PERISHABLE_AGING_STRENGTH[product.id]
-        multiplier *= Decimal("1") + strength * (days / Decimal("10")) ** 2
+        multiplier = Decimal("1") + days / rules.transport.loss.reference_days
+        strength = product.perishable_aging_strength
+        multiplier *= Decimal("1") + strength * (days / rules.transport.loss.perishable_aging_day_scale) ** 2
     else:
-        multiplier = Decimal("1") + (distance / _LOSS_REF_KM) / Decimal("3")
+        multiplier = Decimal("1") + (
+            distance / rules.transport.loss.reference_km
+        ) / rules.transport.loss.normal_distance_divisor
     rate = product.transport_loss_rate
-    random_factor = Decimal(str(rng.uniform(float(_LOSS_RANDOM_FACTOR_MIN), float(_LOSS_RANDOM_FACTOR_MAX))))
+    random_factor = Decimal(
+        str(rng.uniform(float(rules.transport.loss.random_factor_min), float(rules.transport.loss.random_factor_max)))
+    )
     return min(Decimal("1"), max(Decimal("0"), rate * multiplier * random_factor))
 
 
