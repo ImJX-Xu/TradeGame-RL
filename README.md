@@ -2,12 +2,13 @@
 
 一个以交易规则为核心、支持人类游玩与强化学习研究的回合制贸易游戏。
 
-代码按严格单向依赖组织为四层：
+代码按严格单向依赖组织为三层：
 
 1. `trade_game.core`：唯一的游戏规则与状态变更来源。
 2. `trade_game.ui`：人类界面，只将交互转换为核心命令。
-3. `trade_game.agent`：智能体动作协议与核心命令解码。
-4. `trade_game.learning`：PyTorch 网络、行为克隆、DAgger、PPO 与评估。
+3. `trade_game.agent`：智能体动作协议、动作掩码、状态观测与核心命令解码。
+
+后续的 PyTorch 编码器、策略网络和训练算法将只依赖这三层提供的稳定接口。
 
 ## 游玩
 
@@ -88,3 +89,22 @@ from trade_game.agent import build_action_mask
 mask = build_action_mask(session, vocabulary)
 can_travel = mask.action[vocabulary.action_index(CommandType.TRAVEL)]
 ```
+
+## 智能体状态观测
+
+`build_observation` 将 `GameSession` 转换为不可变的结构化状态快照。它不依赖 NumPy、PyTorch 或 Gymnasium；后续训练层负责将其按批次转换为张量。
+
+```python
+from trade_game.agent import build_observation
+
+observation = build_observation(session, vocabulary)
+print(len(observation.market_quotes))       # 14 个城市
+print(len(observation.market_quotes[0]))    # 每城 18 个商品
+print(observation.market_history_valid)     # D-6、D-4、D-2、D 的有效位置
+```
+
+市场状态以 `城市 x 商品 x 4` 的参考出售价格矩阵表示，四个时间点固定为 `D-6、D-4、D-2、D`。每个市场单元还携带采购可用性；价格统一按商品基础进价取对数比例，避免不同商品量级直接干扰网络训练。
+
+观测还包括：全局经营状态、城市和商品的公开静态属性、从当前位置出发的陆运和海运估算，以及保留真实产地、保质期和 FIFO 顺序的可变长度货物批次。市场电报文本、事件持续时间、趋势项、局部价差和事件振幅均不进入观测；智能体只能从公开报价历史推断市场走势。
+
+动作掩码与状态观测保持分离。策略网络使用状态理解市场和经营状况，再用掩码排除无法提交给 `GameSession.dispatch` 的候选动作。
