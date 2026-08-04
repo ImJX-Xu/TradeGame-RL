@@ -55,6 +55,29 @@ def sale_unit_price(
 ) -> Decimal:
     """按真实产地、市场利润和单位流通成本计算当前城市售价。"""
 
+    return sale_unit_price_at_adjustment(
+        catalog,
+        rules,
+        product_id,
+        city_name,
+        origin_city=origin_city,
+        market_adjustment=price_adjustment(state, city_name, product_id),
+        remote_distance_premium=remote_distance_premium,
+    )
+
+
+def sale_unit_price_at_adjustment(
+    catalog: Catalog,
+    rules: GameRules,
+    product_id: str,
+    city_name: str,
+    *,
+    origin_city: str,
+    market_adjustment: Decimal,
+    remote_distance_premium: Decimal = Decimal("0"),
+) -> Decimal:
+    """按给定市场调整值计算销售单价，供公开历史报价复用。"""
+
     product = catalog.product(product_id)
     city = catalog.city(city_name)
     catalog.city(origin_city)
@@ -62,7 +85,7 @@ def sale_unit_price(
         raise ValueError(f"{origin_city} 不是商品 {product_id} 的有效产地")
     if remote_distance_premium < 0:
         raise ValueError("异地距离溢价不能为负")
-    price = product.base_purchase_price * (Decimal("1") + price_adjustment(state, city_name, product_id))
+    price = product.base_purchase_price * (Decimal("1") + market_adjustment)
     if origin_city != city_name:
         price *= Decimal("1") + product.profit_margin_rate
         price += remote_distance_premium

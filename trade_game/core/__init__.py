@@ -15,7 +15,16 @@ from .commands import (
     Travel,
 )
 from .inventory import add_cargo, cargo_quantity, free_capacity, remove_cargo_fifo
-from .finance import assessed_assets, available_credit, borrow, repay, total_debt, total_principal
+from .finance import (
+    assessed_assets,
+    available_credit,
+    borrow,
+    daily_interest_charge,
+    repay,
+    total_debt,
+    total_principal,
+)
+from .market_quotes import reference_sale_price_history
 from .models import (
     CargoLot,
     City,
@@ -38,7 +47,14 @@ from .models import (
     SpecialtyScope,
     TransportMode,
 )
-from .price_functions import can_purchase, money, price_adjustment, purchase_unit_price, sale_unit_price, trade_total
+from .price_functions import (
+    can_purchase,
+    money,
+    price_adjustment,
+    purchase_unit_price,
+    sale_unit_price,
+    trade_total,
+)
 from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
 from .rules import (
     FinanceRules,
@@ -63,8 +79,10 @@ from .timeflow import market_bulletins, market_messages, settle_elapsed_days
 from .trading import SaleQuote, buy, maximum_purchase_quantity, quote_sale, sell
 from .transport import (
     RouteNotFound,
+    TravelEstimate,
     TravelQuote,
     can_travel,
+    estimate_travel,
     quote_travel,
     reference_sale_origin,
     remote_sale_distance_premium,
@@ -73,7 +91,7 @@ from .transport import (
     travel,
     travel_cost,
 )
-from .vehicles import buy_truck, maximum_truck_quantity, repair_truck
+from .vehicles import buy_truck, daily_labor_cost, maximum_truck_quantity, repair_truck
 
 __all__ = [
     "Borrow",
@@ -127,6 +145,7 @@ __all__ = [
     "TransportModeRules",
     "TransportRules",
     "Travel",
+    "TravelEstimate",
     "TravelQuote",
     "VehicleRules",
     "add_cargo",
@@ -141,6 +160,9 @@ __all__ = [
     "conclude_if_needed",
     "create_initial_state",
     "create_game_session",
+    "daily_interest_charge",
+    "daily_labor_cost",
+    "estimate_travel",
     "free_capacity",
     "is_bankrupt",
     "load_catalog",
@@ -157,6 +179,7 @@ __all__ = [
     "quote_travel",
     "quote_sale",
     "reference_sale_origin",
+    "reference_sale_price_history",
     "remote_sale_distance_premium",
     "repay",
     "remove_cargo_fifo",

@@ -25,6 +25,12 @@ def total_debt(loans: tuple[Loan, ...]) -> Decimal:
     return money(sum((loan.principal + loan.accrued_interest for loan in loans), start=Decimal("0")))
 
 
+def daily_interest_charge(loans: tuple[Loan, ...], daily_rate: Decimal) -> Decimal:
+    """返回下一次日结将新增的利息，舍入规则与日结完全一致。"""
+
+    return accrue_daily_interest(loans, daily_rate)[1]
+
+
 def assessed_assets(catalog: Catalog, state: GameState) -> Decimal:
     """按货物基础采购价评估可用于授信的流动资产。"""
 

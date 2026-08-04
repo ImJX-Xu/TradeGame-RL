@@ -23,6 +23,7 @@ from .models import (
 from .price_functions import money
 from .results import GameEvent
 from .rules import GameRules
+from .vehicles import daily_labor_cost
 
 
 PRICE_HISTORY_DAYS = 7
@@ -47,9 +48,7 @@ def settle_elapsed_days(
     for offset in range(days):
         loans, interest = accrue_daily_interest(current.loans, rules.finance.daily_interest_rate)
         cargo_lots, expired = _age_cargo(current.player.cargo_lots)
-        labor_cost = money(
-            rules.vehicles.daily_labor_cost_per_extra_truck * max(0, current.player.truck_count - 1)
-        )
+        labor_cost = daily_labor_cost(rules, current)
         player = replace(
             current.player,
             cash=current.player.cash - labor_cost,

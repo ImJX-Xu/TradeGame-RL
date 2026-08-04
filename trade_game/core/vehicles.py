@@ -12,6 +12,12 @@ from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
 from .rules import GameRules
 
 
+def daily_labor_cost(rules: GameRules, state: GameState) -> Decimal:
+    """返回当前车队在下一次日结的额外车辆人工成本。"""
+
+    return money(rules.vehicles.daily_labor_cost_per_extra_truck * max(0, state.player.truck_count - 1))
+
+
 def maximum_truck_quantity(rules: GameRules, state: GameState) -> int:
     """返回当前现金可购买的最大货车数量。"""
 

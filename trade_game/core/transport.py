@@ -35,6 +35,21 @@ class TravelQuote:
     truck_durability_loss: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class TravelEstimate:
+    """不消耗随机数的路线估算，供界面和智能体比较候选运输方案。"""
+
+    origin: str
+    destination: str
+    mode: TransportMode
+    distance_km: int
+    standard_days: int
+    fast_days: int
+    standard_cost: Decimal
+    fast_cost: Decimal
+    truck_durability_loss: Decimal
+
+
 def shortest_distance(
     catalog: Catalog, origin: str, destination: str, mode: TransportMode
 ) -> int:
@@ -122,6 +137,32 @@ def can_travel(catalog: Catalog, rules: GameRules, state: GameState, command: Tr
         return state.player.cash >= travel_cost(catalog, rules, state, command)
     except RouteNotFound:
         return False
+
+
+def estimate_travel(
+    catalog: Catalog, rules: GameRules, state: GameState, command: Travel
+) -> TravelEstimate:
+    """估算普通和快速运输的确定性成本、基准时间与耐久损耗。"""
+
+    distance = _travel_distance(catalog, rules, state, command)
+    standard_command = Travel(destination=command.destination, mode=command.mode)
+    fast_command = Travel(destination=command.destination, mode=command.mode, fast=True)
+    standard_days = _baseline_travel_days(rules, state, command.mode, distance)
+    return TravelEstimate(
+        origin=state.player.location,
+        destination=command.destination,
+        mode=command.mode,
+        distance_km=distance,
+        standard_days=standard_days,
+        fast_days=max(1, standard_days // rules.transport.fast_time_divisor),
+        standard_cost=_travel_cost(rules, state, standard_command, distance),
+        fast_cost=_travel_cost(rules, state, fast_command, distance),
+        truck_durability_loss=(
+            Decimal(distance) * rules.transport.truck_durability_loss_per_km
+            if command.mode is TransportMode.LAND
+            else Decimal("0")
+        ),
+    )
 
 
 def quote_travel(
@@ -261,6 +302,28 @@ def _sample_travel_days(rules: GameRules, mode: TransportMode, distance_km: int,
         ),
     )
     return max(1, ceil(base_days * factor))
+
+
+def _baseline_travel_days(
+    rules: GameRules, state: GameState, mode: TransportMode, distance_km: int
+) -> int:
+    mode_rules = rules.transport.land if mode is TransportMode.LAND else rules.transport.sea
+    days = max(1, ceil(distance_km / mode_rules.speed_km_per_day))
+    if mode is TransportMode.LAND:
+        truck_damage_ratio = (Decimal("100") - state.player.truck_durability) / Decimal("100")
+        days = max(
+            1,
+            int(
+                round(
+                    days
+                    * float(
+                        Decimal("1")
+                        + rules.transport.truck_damage_time_multiplier * truck_damage_ratio
+                    )
+                )
+            ),
+        )
+    return days
 
 
 def _apply_transport_loss(

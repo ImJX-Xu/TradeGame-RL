@@ -33,6 +33,7 @@ from trade_game.core import (
     money,
     purchase_unit_price,
     quote_sale,
+    reference_sale_price_history,
     reference_sale_origin,
     remote_sale_distance_premium,
     sale_unit_price,
@@ -403,7 +404,7 @@ class TradeGameWindow(arcade.Window):
         for index, product_id in enumerate(product_ids):
             product = self.session.catalog.product(product_id)
             unit_price, quantity_limit = self._order_quote(mode, product_id)
-            price_history = self._price_history(mode, product_id)
+            price_history = self._price_history(product_id)
             row = Rect(bounds.left, row_top - (index + 1) * 58, bounds.right, row_top - index * 58)
             self._draw_trade_row(
                 row,
@@ -558,36 +559,17 @@ class TradeGameWindow(arcade.Window):
         )
         return quote.average_unit_price, quantity
 
-    def _price_history(
-        self, mode: str, product_id: str, *, city_name: str | None = None
-    ) -> tuple[Decimal, ...]:
-        """将核心保存的价格扰动还原为玩家在当前城市可见的价格序列。"""
+    def _price_history(self, product_id: str, *, city_name: str | None = None) -> tuple[Decimal, ...]:
+        """读取核心提供的公开参考售价历史。"""
 
-        state = self.session.state
-        city_name = city_name or state.player.location
-        product = self.session.catalog.product(product_id)
-        factor = product.base_purchase_price
-        if mode == "sell":
-            origin_city = reference_sale_origin(self.session.catalog, product, city_name)
-            distance_premium = remote_sale_distance_premium(
-                self.session.catalog,
-                self.session.rules,
-                origin_city,
-                city_name,
-            )
-        else:
-            origin_city = city_name
-            distance_premium = Decimal("0")
-        prices: list[Decimal] = []
-        for price_adjustment in state.market.price_adjustment_history[(city_name, product_id)]:
-            price = factor * (Decimal("1") + price_adjustment)
-            if mode == "sell" and origin_city != city_name:
-                price *= Decimal("1") + product.profit_margin_rate
-                price += distance_premium
-                if self.session.catalog.city(city_name).is_high_consumption:
-                    price *= self.session.rules.pricing.high_consumption_multiplier
-            prices.append(money(price))
-        return tuple(prices)
+        city_name = city_name or self.session.state.player.location
+        return reference_sale_price_history(
+            self.session.catalog,
+            self.session.rules,
+            self.session.state,
+            product_id,
+            city_name,
+        )
 
     def _draw_trade_order_modal(self) -> None:
         """以订单单据集中确认商品、数量、金额和最终动作。"""
@@ -612,7 +594,7 @@ class TradeGameWindow(arcade.Window):
             )
             unit_price = sale_quote.average_unit_price
             total = sale_quote.total
-        price_history = self._price_history(order.mode, order.product_id)
+        price_history = self._price_history(order.product_id)
         change_text, change_color = _price_change(price_history, order.mode)
         average_price = money(sum(price_history) / len(price_history))
         player = self.session.state.player
@@ -728,7 +710,7 @@ class TradeGameWindow(arcade.Window):
         for product in products[page_start : page_start + page_size]:
             row = Rect(bounds.left, row_top - 28, bounds.right, row_top)
             purchase, sale = self._market_prices(product.id, self.market_city)
-            history = self._price_history("sell", product.id, city_name=self.market_city)
+            history = self._price_history(product.id, city_name=self.market_city)
             change_text, change_color = _price_change(history, "sell")
             price_range = f"{min(history):,.2f} / {max(history):,.2f}"
             arcade.draw_lrbt_rectangle_filled(row.left, row.right, row.bottom, row.top, PANEL_INSET)
