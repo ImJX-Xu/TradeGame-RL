@@ -40,6 +40,35 @@ GLOBAL_FEATURE_NAMES = (
     "daily_interest_log",
     "daily_labor_log",
 )
+CITY_FEATURE_NAMES = (
+    "is_current_city",
+    "has_bank",
+    "has_port",
+    "is_high_consumption",
+)
+PRODUCT_FEATURE_NAMES = (
+    "base_price_log",
+    "profit_margin_rate",
+    "shelf_life_fraction",
+    "has_shelf_life",
+    "transport_loss_rate",
+)
+ROUTE_FEATURE_NAMES = (
+    "distance_log",
+    "standard_cost_log",
+    "standard_days_fraction",
+    "fast_cost_log",
+    "fast_days_fraction",
+    "truck_durability_loss_fraction",
+)
+CARGO_FEATURE_NAMES = (
+    "quantity_fraction",
+    "age_fraction",
+    "shelf_life_fraction",
+    "has_shelf_life",
+    "fifo_fraction",
+    "sale_price_log",
+)
 PRODUCT_CATEGORY_NAMES = tuple(category.value for category in ProductCategory)
 
 
@@ -353,14 +382,18 @@ def _price_log(price: Decimal, base_price: Decimal) -> float:
 
 __all__ = [
     "AgentObservation",
+    "CARGO_FEATURE_NAMES",
     "CargoLotObservation",
+    "CITY_FEATURE_NAMES",
     "CityObservation",
     "GLOBAL_FEATURE_NAMES",
     "GlobalObservation",
     "MARKET_HISTORY_OFFSETS",
     "MarketQuoteObservation",
     "PRODUCT_CATEGORY_NAMES",
+    "PRODUCT_FEATURE_NAMES",
     "ProductObservation",
+    "ROUTE_FEATURE_NAMES",
     "RouteObservation",
     "build_observation",
 ]

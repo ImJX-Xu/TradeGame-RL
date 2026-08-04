@@ -18,6 +18,12 @@
 pip install -e ".[ui]"
 ```
 
+智能体张量批处理与后续 PyTorch 网络使用独立可选依赖：
+
+```powershell
+pip install -e ".[learning]"
+```
+
 在仓库目录执行：
 
 ```powershell
@@ -108,3 +114,16 @@ print(observation.market_history_valid)     # D-6、D-4、D-2、D 的有效位�
 观测还包括：全局经营状态、城市和商品的公开静态属性、从当前位置出发的陆运和海运估算，以及保留真实产地、保质期和 FIFO 顺序的可变长度货物批次。市场电报文本、事件持续时间、趋势项、局部价差和事件振幅均不进入观测；智能体只能从公开报价历史推断市场走势。
 
 动作掩码与状态观测保持分离。策略网络使用状态理解市场和经营状况，再用掩码排除无法提交给 `GameSession.dispatch` 的候选动作。
+
+学习层先将结构化观测批量化为 PyTorch 张量，不在此阶段进行 flatten、embedding 或 Attention：
+
+```python
+from trade_game.learning import ActionMaskBatch, ObservationBatch
+
+observations = [build_observation(session, vocabulary)]
+masks = [build_action_mask(session, vocabulary)]
+state_batch = ObservationBatch.from_observations(observations)
+mask_batch = ActionMaskBatch.from_masks(masks)
+```
+
+市场价格保持为 `[B, 城市, 商品, 4]`，货物批次按当前 batch 的最大批次数动态补齐；`cargo_valid` 标记真实批次，动作掩码仍独立于状态张量。
