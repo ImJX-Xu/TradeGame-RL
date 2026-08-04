@@ -27,6 +27,24 @@ class ProductCategory(StrEnum):
     PERISHABLE = "perishable"
 
 
+class MarketRole(StrEnum):
+    """城市在市场供需关系中承担的经济角色。"""
+
+    CONSUMER = "consumer"
+    DISTRIBUTION = "distribution"
+    INDUSTRIAL = "industrial"
+    PORT = "port"
+    RESOURCE = "resource"
+    ISLAND = "island"
+
+
+class MarketEventKind(StrEnum):
+    """玩家可感知的阶段性市场供需变化。"""
+
+    SURPLUS = "surplus"
+    SHORTAGE = "shortage"
+
+
 class SpecialtyScope(StrEnum):
     """商品产地是单城还是区域。"""
 
@@ -35,7 +53,7 @@ class SpecialtyScope(StrEnum):
 
 
 class GameMode(StrEnum):
-    """核心支持的游戏模式。具体限制由后续规则层定义。"""
+    """核心支持的游戏模式；挑战模式的期限由全局规则定义。"""
 
     FREE = "free"
     CHALLENGE = "challenge"
@@ -60,6 +78,7 @@ class City:
     latitude: Decimal
     longitude: Decimal
     is_high_consumption: bool
+    market_roles: frozenset[MarketRole]
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,11 +95,40 @@ class Product:
     specialty_region: str | None
     perishable_shelf_life_days: int | None
     perishable_aging_strength: Decimal | None
-    lambda_min: Decimal
-    lambda_max: Decimal
-    lambda_alpha: Decimal
-    lambda_sigma: Decimal
+    price_adjustment_min: Decimal
+    price_adjustment_max: Decimal
+    trend_persistence: Decimal
+    trend_sigma: Decimal
+    local_spread_sigma: Decimal
+    local_spread_max: Decimal
+    event_amplitude_min: Decimal
+    event_amplitude_max: Decimal
+    event_duration_min_days: int
+    event_duration_max_days: int
+    event_weight: Decimal
+    demand_roles: frozenset[MarketRole]
     transport_loss_rate: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class MarketEvent:
+    """覆盖一个或多个城市的市场事件；峰值仅用于价格计算。"""
+
+    kind: MarketEventKind
+    product_id: str
+    cities: tuple[str, ...]
+    start_day: int
+    end_day: int
+    peak_adjustment: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class MarketMessage:
+    """人类界面和 Agent 共享的公开市场讯息。"""
+
+    kind: MarketEventKind
+    product_id: str
+    remaining_days: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,7 +143,7 @@ class Route:
 
 @dataclass(frozen=True, slots=True)
 class CargoLot:
-    """玩家持有的一批货物。库存规则将在后续阶段实现。"""
+    """玩家持有的一批货物，保留真实产地、数量与保质期。"""
 
     product_id: str
     quantity: int
@@ -148,16 +196,18 @@ class PlayerState:
 
 @dataclass(frozen=True, slots=True)
 class MarketState:
-    """市场状态，包含当前价格扰动、昨日扰动和有限的近期走势。"""
+    """市场状态：长期趋势、当前价格调整、近期行情和在途事件。"""
 
-    current_lambdas: Mapping[CityProductKey, Decimal]
-    previous_lambdas: Mapping[CityProductKey, Decimal]
-    lambda_history: Mapping[CityProductKey, tuple[Decimal, ...]]
+    current_price_adjustments: Mapping[CityProductKey, Decimal]
+    product_trends: Mapping[str, Decimal]
+    local_spreads: Mapping[CityProductKey, Decimal]
+    price_adjustment_history: Mapping[CityProductKey, tuple[Decimal, ...]]
+    active_events: tuple[MarketEvent, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class GameState:
-    """完整的游戏状态快照，由后续 GameSession 唯一拥有并替换。"""
+    """完整的游戏状态快照，由 GameSession 唯一拥有并替换。"""
 
     player: PlayerState
     day: int

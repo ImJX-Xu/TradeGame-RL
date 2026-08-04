@@ -10,7 +10,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Iterable, Mapping
 
-from .models import City, Product, ProductCategory, Route, SpecialtyScope, TransportMode
+from .models import City, MarketRole, Product, ProductCategory, Route, SpecialtyScope, TransportMode
 
 
 class CatalogDataError(ValueError):
@@ -46,6 +46,7 @@ _CITY_COLUMNS = frozenset(
         "lat",
         "lon",
         "is_high_consumption",
+        "market_roles",
     }
 )
 _PRODUCT_COLUMNS = frozenset(
@@ -60,10 +61,18 @@ _PRODUCT_COLUMNS = frozenset(
         "specialty_region",
         "perishable_shelf_life_days",
         "perishable_aging_strength",
-        "lambda_min",
-        "lambda_max",
-        "lambda_alpha",
-        "lambda_sigma",
+        "price_adjustment_min",
+        "price_adjustment_max",
+        "trend_persistence",
+        "trend_sigma",
+        "local_spread_sigma",
+        "local_spread_max",
+        "event_amplitude_min",
+        "event_amplitude_max",
+        "event_duration_min_days",
+        "event_duration_max_days",
+        "event_weight",
+        "demand_roles",
         "transport_loss_rate",
     }
 )
@@ -156,6 +165,14 @@ def _load_cities(path: Path) -> dict[str, City]:
             raise CatalogDataError(f"{path.name}:{line} 包含未知运输方式") from error
         if not modes:
             raise CatalogDataError(f"{path.name}:{line} 的 modes 不能为空")
+        try:
+            market_roles = frozenset(
+                MarketRole(role) for role in _value(row, "market_roles", path, line).split("+")
+            )
+        except ValueError as error:
+            raise CatalogDataError(f"{path.name}:{line} 包含未知市场角色") from error
+        if not market_roles:
+            raise CatalogDataError(f"{path.name}:{line} 的 market_roles 不能为空")
         has_port = _boolean(_value(row, "has_port", path, line), path, line, "has_port")
         if has_port != (TransportMode.SEA in modes):
             raise CatalogDataError(f"{path.name}:{line} 的 has_port 与 modes 不一致")
@@ -170,6 +187,7 @@ def _load_cities(path: Path) -> dict[str, City]:
             is_high_consumption=_boolean(
                 _value(row, "is_high_consumption", path, line), path, line, "is_high_consumption"
             ),
+            market_roles=market_roles,
         )
     if not cities:
         raise CatalogDataError(f"{path.name} 至少需要一个城市")
@@ -207,6 +225,14 @@ def _load_products(path: Path) -> dict[str, Product]:
             raise CatalogDataError(f"{path.name}:{line} 的区域特产必须指定 specialty_region")
         if scope is SpecialtyScope.CITY and region is not None:
             raise CatalogDataError(f"{path.name}:{line} 的城市特产不能指定 specialty_region")
+        try:
+            demand_roles = frozenset(
+                MarketRole(role) for role in _value(row, "demand_roles", path, line).split("+")
+            )
+        except ValueError as error:
+            raise CatalogDataError(f"{path.name}:{line} 包含未知需求市场角色") from error
+        if not demand_roles:
+            raise CatalogDataError(f"{path.name}:{line} 的 demand_roles 不能为空")
         product = Product(
             id=product_id,
             name=_value(row, "name", path, line),
@@ -222,10 +248,36 @@ def _load_products(path: Path) -> dict[str, Product]:
             specialty_region=region,
             perishable_shelf_life_days=shelf_life,
             perishable_aging_strength=aging_strength,
-            lambda_min=_decimal(_value(row, "lambda_min", path, line), path, line, "lambda_min"),
-            lambda_max=_decimal(_value(row, "lambda_max", path, line), path, line, "lambda_max"),
-            lambda_alpha=_decimal(_value(row, "lambda_alpha", path, line), path, line, "lambda_alpha"),
-            lambda_sigma=_decimal(_value(row, "lambda_sigma", path, line), path, line, "lambda_sigma"),
+            price_adjustment_min=_decimal(
+                _value(row, "price_adjustment_min", path, line), path, line, "price_adjustment_min"
+            ),
+            price_adjustment_max=_decimal(
+                _value(row, "price_adjustment_max", path, line), path, line, "price_adjustment_max"
+            ),
+            trend_persistence=_decimal(
+                _value(row, "trend_persistence", path, line), path, line, "trend_persistence"
+            ),
+            trend_sigma=_decimal(_value(row, "trend_sigma", path, line), path, line, "trend_sigma"),
+            local_spread_sigma=_decimal(
+                _value(row, "local_spread_sigma", path, line), path, line, "local_spread_sigma"
+            ),
+            local_spread_max=_decimal(
+                _value(row, "local_spread_max", path, line), path, line, "local_spread_max"
+            ),
+            event_amplitude_min=_decimal(
+                _value(row, "event_amplitude_min", path, line), path, line, "event_amplitude_min"
+            ),
+            event_amplitude_max=_decimal(
+                _value(row, "event_amplitude_max", path, line), path, line, "event_amplitude_max"
+            ),
+            event_duration_min_days=_integer(
+                _value(row, "event_duration_min_days", path, line), path, line, "event_duration_min_days"
+            ),
+            event_duration_max_days=_integer(
+                _value(row, "event_duration_max_days", path, line), path, line, "event_duration_max_days"
+            ),
+            event_weight=_decimal(_value(row, "event_weight", path, line), path, line, "event_weight"),
+            demand_roles=demand_roles,
             transport_loss_rate=_decimal(
                 _value(row, "transport_loss_rate", path, line), path, line, "transport_loss_rate"
             ),
@@ -234,8 +286,22 @@ def _load_products(path: Path) -> dict[str, Product]:
             raise CatalogDataError(f"{path.name}:{line} 的 base_purchase_price 必须大于 0")
         if product.profit_margin_rate < 0:
             raise CatalogDataError(f"{path.name}:{line} 的 profit_margin_rate 不能为负")
-        if product.lambda_min > product.lambda_max:
-            raise CatalogDataError(f"{path.name}:{line} 的 lambda_min 不能大于 lambda_max")
+        if product.price_adjustment_min >= 0 or product.price_adjustment_max <= 0:
+            raise CatalogDataError(f"{path.name}:{line} 的价格调整范围必须跨越零点")
+        if product.price_adjustment_min >= product.price_adjustment_max:
+            raise CatalogDataError(f"{path.name}:{line} 的价格调整范围无效")
+        if not Decimal("0") < product.trend_persistence < Decimal("1"):
+            raise CatalogDataError(f"{path.name}:{line} 的 trend_persistence 必须位于 0 和 1 之间")
+        if product.trend_sigma <= 0:
+            raise CatalogDataError(f"{path.name}:{line} 的 trend_sigma 必须大于 0")
+        if product.local_spread_sigma <= 0 or product.local_spread_max <= 0:
+            raise CatalogDataError(f"{path.name}:{line} 的地方价差参数必须大于 0")
+        if product.event_amplitude_min <= 0 or product.event_amplitude_min > product.event_amplitude_max:
+            raise CatalogDataError(f"{path.name}:{line} 的事件价格幅度无效")
+        if product.event_duration_min_days <= 0 or product.event_duration_min_days > product.event_duration_max_days:
+            raise CatalogDataError(f"{path.name}:{line} 的事件持续时间无效")
+        if product.event_weight <= 0:
+            raise CatalogDataError(f"{path.name}:{line} 的 event_weight 必须大于 0")
         if not Decimal("0") <= product.transport_loss_rate <= Decimal("1"):
             raise CatalogDataError(f"{path.name}:{line} 的 transport_loss_rate 必须在 0 到 1 之间")
         if category is ProductCategory.PERISHABLE and (aging_strength is None or aging_strength <= 0):

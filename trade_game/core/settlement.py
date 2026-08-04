@@ -11,7 +11,7 @@ from .inventory import cargo_quantity
 from .models import GameEndReason, GameMode, GameOutcome, GameState
 from .price_functions import money, sale_unit_price
 from .rules import GameRules
-from .transport import remote_sale_distance_multiplier
+from .transport import remote_sale_distance_premium
 
 
 def settlement_assets(catalog: Catalog, rules: GameRules, state: GameState) -> Decimal:
@@ -25,8 +25,9 @@ def settlement_assets(catalog: Catalog, rules: GameRules, state: GameState) -> D
                 state,
                 lot.product_id,
                 state.player.location,
-                remote_distance_multiplier=remote_sale_distance_multiplier(
-                    catalog, rules, catalog.product(lot.product_id), state.player.location
+                origin_city=lot.origin_city,
+                remote_distance_premium=remote_sale_distance_premium(
+                    catalog, rules, lot.origin_city, state.player.location
                 ),
             )
             * lot.quantity

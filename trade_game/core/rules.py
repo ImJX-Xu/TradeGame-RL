@@ -34,17 +34,18 @@ class GameLimits:
 @dataclass(frozen=True, slots=True)
 class PricingRules:
     high_consumption_multiplier: Decimal
-    remote_sale_multiplier_min: Decimal
-    remote_sale_multiplier_max: Decimal
+    remote_sale_premium_per_km: Decimal
 
 
 @dataclass(frozen=True, slots=True)
 class MarketRules:
-    lambda_alpha_adjustment: Decimal
-    lambda_sigma_adjustment: Decimal
-    high_consumption_range_multiplier: Decimal
-    high_consumption_alpha_multiplier: Decimal
-    high_consumption_sigma_multiplier: Decimal
+    trend_range_share: Decimal
+    local_spread_persistence: Decimal
+    event_spawn_probability: Decimal
+    max_active_events: int
+    event_ramp_days: int
+    shortage_probability: Decimal
+    regional_scope_probability: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,15 +207,16 @@ def _parse_game(raw: Mapping[str, Any], catalog: Catalog) -> tuple[InitialStateR
 
 
 def _parse_pricing(raw: Mapping[str, Any]) -> PricingRules:
-    _expect_exact_keys(raw, {"high_consumption_multiplier", "remote_sale_multiplier_min", "remote_sale_multiplier_max"}, "pricing")
-    minimum = _decimal(raw["remote_sale_multiplier_min"], "pricing.remote_sale_multiplier_min", minimum=Decimal("1"))
-    maximum = _decimal(raw["remote_sale_multiplier_max"], "pricing.remote_sale_multiplier_max", minimum=minimum)
+    _expect_exact_keys(raw, {"high_consumption_multiplier", "remote_sale_premium_per_km"}, "pricing")
     return PricingRules(
         high_consumption_multiplier=_decimal(
             raw["high_consumption_multiplier"], "pricing.high_consumption_multiplier", minimum=Decimal("1")
         ),
-        remote_sale_multiplier_min=minimum,
-        remote_sale_multiplier_max=maximum,
+        remote_sale_premium_per_km=_decimal(
+            raw["remote_sale_premium_per_km"],
+            "pricing.remote_sale_premium_per_km",
+            minimum=Decimal("0"),
+        ),
     )
 
 
@@ -222,35 +224,48 @@ def _parse_market(raw: Mapping[str, Any]) -> MarketRules:
     _expect_exact_keys(
         raw,
         {
-            "lambda_alpha_adjustment",
-            "lambda_sigma_adjustment",
-            "high_consumption_range_multiplier",
-            "high_consumption_alpha_multiplier",
-            "high_consumption_sigma_multiplier",
+            "trend_range_share",
+            "local_spread_persistence",
+            "event_spawn_probability",
+            "max_active_events",
+            "event_ramp_days",
+            "shortage_probability",
+            "regional_scope_probability",
         },
         "market",
     )
     return MarketRules(
-        lambda_alpha_adjustment=_decimal(
-            raw["lambda_alpha_adjustment"], "market.lambda_alpha_adjustment", minimum=Decimal("0")
-        ),
-        lambda_sigma_adjustment=_decimal(
-            raw["lambda_sigma_adjustment"], "market.lambda_sigma_adjustment", minimum=Decimal("0")
-        ),
-        high_consumption_range_multiplier=_decimal(
-            raw["high_consumption_range_multiplier"],
-            "market.high_consumption_range_multiplier",
-            minimum=Decimal("1"),
-        ),
-        high_consumption_alpha_multiplier=_decimal(
-            raw["high_consumption_alpha_multiplier"],
-            "market.high_consumption_alpha_multiplier",
+        trend_range_share=_decimal(
+            raw["trend_range_share"],
+            "market.trend_range_share",
             minimum=Decimal("0"),
+            maximum=Decimal("1"),
         ),
-        high_consumption_sigma_multiplier=_decimal(
-            raw["high_consumption_sigma_multiplier"],
-            "market.high_consumption_sigma_multiplier",
+        local_spread_persistence=_decimal(
+            raw["local_spread_persistence"],
+            "market.local_spread_persistence",
             minimum=Decimal("0"),
+            maximum=Decimal("1"),
+        ),
+        event_spawn_probability=_decimal(
+            raw["event_spawn_probability"],
+            "market.event_spawn_probability",
+            minimum=Decimal("0"),
+            maximum=Decimal("1"),
+        ),
+        max_active_events=_integer(raw["max_active_events"], "market.max_active_events", minimum=1),
+        event_ramp_days=_integer(raw["event_ramp_days"], "market.event_ramp_days", minimum=1),
+        shortage_probability=_decimal(
+            raw["shortage_probability"],
+            "market.shortage_probability",
+            minimum=Decimal("0"),
+            maximum=Decimal("1"),
+        ),
+        regional_scope_probability=_decimal(
+            raw["regional_scope_probability"],
+            "market.regional_scope_probability",
+            minimum=Decimal("0"),
+            maximum=Decimal("1"),
         ),
     )
 

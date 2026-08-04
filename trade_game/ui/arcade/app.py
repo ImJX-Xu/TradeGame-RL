@@ -28,9 +28,12 @@ from trade_game.core import (
     cargo_quantity,
     create_game_session,
     free_capacity,
+    market_messages,
     money,
     purchase_unit_price,
-    remote_sale_distance_multiplier,
+    quote_sale,
+    reference_sale_origin,
+    remote_sale_distance_premium,
     sale_unit_price,
     trade_total,
     total_debt,
@@ -365,7 +368,7 @@ class TradeGameWindow(arcade.Window):
         columns = (
             ("商品", rect.left + 16, "left"),
             ("类别", rect.left + rect.width * 0.25, "left"),
-            ("当前价", rect.left + rect.width * 0.45, "right"),
+            ("当前进价" if quantity_label == "最大可购" else "当前均价", rect.left + rect.width * 0.45, "right"),
             ("昨日变动", rect.left + rect.width * 0.58, "right"),
             ("7 日均价", rect.left + rect.width * 0.70, "right"),
             (quantity_label, rect.left + rect.width * 0.80, "right"),
@@ -482,8 +485,17 @@ class TradeGameWindow(arcade.Window):
             capacity = free_capacity(state.player.cargo_lots, state.player.truck_total_capacity)
             affordable = int(state.player.cash / purchase)
             return purchase, min(capacity, affordable)
-        _purchase, sale = self._market_prices(product_id, state.player.location)
-        return sale, cargo_quantity(state.player.cargo_lots, product.id)
+        quantity = cargo_quantity(state.player.cargo_lots, product.id)
+        if quantity == 0:
+            return Decimal("0"), 0
+        quote = quote_sale(
+            self.session.catalog,
+            self.session.rules,
+            state,
+            product.id,
+            quantity,
+        )
+        return quote.average_unit_price, quantity
 
     def _price_history(
         self, mode: str, product_id: str, *, city_name: str | None = None
@@ -494,20 +506,27 @@ class TradeGameWindow(arcade.Window):
         city_name = city_name or state.player.location
         product = self.session.catalog.product(product_id)
         factor = product.base_purchase_price
-        if mode == "sell" and city_name not in product.origins:
-            factor *= Decimal("1") + product.profit_margin_rate
-            factor *= remote_sale_distance_multiplier(
+        if mode == "sell":
+            origin_city = reference_sale_origin(self.session.catalog, product, city_name)
+            distance_premium = remote_sale_distance_premium(
                 self.session.catalog,
                 self.session.rules,
-                product,
+                origin_city,
                 city_name,
             )
-            if self.session.catalog.city(city_name).is_high_consumption:
-                factor *= self.session.rules.pricing.high_consumption_multiplier
-        return tuple(
-            money(factor * (Decimal("1") + lambda_value))
-            for lambda_value in state.market.lambda_history[(city_name, product_id)]
-        )
+        else:
+            origin_city = city_name
+            distance_premium = Decimal("0")
+        prices: list[Decimal] = []
+        for price_adjustment in state.market.price_adjustment_history[(city_name, product_id)]:
+            price = factor * (Decimal("1") + price_adjustment)
+            if mode == "sell" and origin_city != city_name:
+                price *= Decimal("1") + product.profit_margin_rate
+                price += distance_premium
+                if self.session.catalog.city(city_name).is_high_consumption:
+                    price *= self.session.rules.pricing.high_consumption_multiplier
+            prices.append(money(price))
+        return tuple(prices)
 
     def _draw_trade_order_modal(self) -> None:
         """以订单单据集中确认商品、数量、金额和最终动作。"""
@@ -520,7 +539,18 @@ class TradeGameWindow(arcade.Window):
         is_buy = order.mode == "buy"
         title = "采购订单" if is_buy else "出售订单"
         action_label = "采购" if is_buy else "出售"
-        total = trade_total(unit_price, quantity)
+        if is_buy:
+            total = trade_total(unit_price, quantity)
+        else:
+            sale_quote = quote_sale(
+                self.session.catalog,
+                self.session.rules,
+                self.session.state,
+                order.product_id,
+                quantity,
+            )
+            unit_price = sale_quote.average_unit_price
+            total = sale_quote.total
         price_history = self._price_history(order.mode, order.product_id)
         change_text, change_color = _price_change(price_history, order.mode)
         average_price = money(sum(price_history) / len(price_history))
@@ -538,7 +568,7 @@ class TradeGameWindow(arcade.Window):
         draw_title_bar(Rect(rect.left + 3, rect.top - 31, rect.right - 3, rect.top - 3), title)
         arcade.draw_text(product.name, rect.left + 24, rect.top - 54, TEXT_DARK, 19, font_name="Microsoft YaHei UI", bold=True, anchor_y="top")
         rows = (
-            ("当前价", f"{unit_price:,.2f}", TEXT_DARK),
+            ("当前进价" if is_buy else "本单均价", f"{unit_price:,.2f}", TEXT_DARK),
             ("昨日变动", change_text, change_color),
             ("7 日均价", f"{average_price:,.2f}", TEXT_DARK),
             ("最多可购" if is_buy else "可售数量", str(maximum), TEXT_DARK),
@@ -609,6 +639,29 @@ class TradeGameWindow(arcade.Window):
                 emphasis=city_name == self.market_city,
             )
 
+        messages = market_messages(self.session.state, self.market_city)
+        if messages:
+            message_text = "；".join(
+                (
+                    f"{self.session.catalog.product(message.product_id).name}库存积压，预计还有{message.remaining_days}天"
+                    if message.kind.value == "surplus"
+                    else f"{self.session.catalog.product(message.product_id).name}货源紧张，预计还有{message.remaining_days}天"
+                )
+                for message in messages
+            )
+            market_message = f"市场讯息：{message_text}"
+        else:
+            market_message = "市场讯息：近期供需平稳。"
+        arcade.draw_text(
+            _short_text(market_message, 72),
+            bounds.left,
+            bounds.top - 118,
+            CURRENT_CITY if messages else MUTED,
+            11,
+            font_name="Microsoft YaHei UI",
+            anchor_y="top",
+        )
+
         header = Rect(bounds.left, bounds.top - 148, bounds.right, bounds.top - 116)
         arcade.draw_lrbt_rectangle_filled(header.left, header.right, header.bottom, header.top, (211, 219, 216))
         columns = (
@@ -650,7 +703,7 @@ class TradeGameWindow(arcade.Window):
             arcade.draw_text(change_text, row.right - 16, row.center_y, change_color, 11, font_name="Microsoft YaHei UI", anchor_x="right", anchor_y="center")
             row_top = row.bottom
 
-        caption = "进货价只在货源地可用；出货参考价为货物抵达当地后的单价。"
+        caption = "进货价只在货源地可用；出货参考价按最近货源估算，实际出售按货物来源结算。"
         arcade.draw_text(caption, bounds.left, bounds.bottom + 26, MUTED, 11, font_name="Microsoft YaHei UI", anchor_y="center")
         if page_count > 1:
             button_y = bounds.bottom + 10
@@ -1114,16 +1167,18 @@ class TradeGameWindow(arcade.Window):
             if city_name in product.origins
             else None
         )
+        origin_city = reference_sale_origin(self.session.catalog, product, city_name)
         sale = sale_unit_price(
             self.session.catalog,
             self.session.rules,
             self.session.state,
             product_id,
             city_name,
-            remote_distance_multiplier=remote_sale_distance_multiplier(
+            origin_city=origin_city,
+            remote_distance_premium=remote_sale_distance_premium(
                 self.session.catalog,
                 self.session.rules,
-                product,
+                origin_city,
                 city_name,
             ),
         )

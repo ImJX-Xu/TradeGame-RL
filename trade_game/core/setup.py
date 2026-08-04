@@ -17,14 +17,15 @@ def create_initial_state(
 
     initial = rules.initial
     # 价格波动由城市和商品共同决定，不能把不同城市的市场价格混为一项。
-    zero_lambdas = MappingProxyType(
+    zero_adjustments = MappingProxyType(
         {
             (city_name, product_id): Decimal("0")
             for city_name in catalog.cities
             for product_id in catalog.products
         }
     )
-    lambda_history = MappingProxyType({key: (value,) for key, value in zero_lambdas.items()})
+    price_history = MappingProxyType({key: (value,) for key, value in zero_adjustments.items()})
+    product_trends = MappingProxyType({product_id: Decimal("0") for product_id in catalog.products})
     return GameState(
         player=PlayerState(
             cash=initial.initial_cash,
@@ -38,9 +39,11 @@ def create_initial_state(
         day=initial.initial_day,
         mode=mode,
         market=MarketState(
-            current_lambdas=zero_lambdas,
-            previous_lambdas=zero_lambdas,
-            lambda_history=lambda_history,
+            current_price_adjustments=zero_adjustments,
+            product_trends=product_trends,
+            local_spreads=zero_adjustments,
+            price_adjustment_history=price_history,
+            active_events=(),
         ),
         loans=(),
         visited_cities=frozenset({initial.initial_location}),

@@ -23,7 +23,9 @@ from trade_game.core import (
     available_credit,
     cargo_quantity,
     create_game_session,
-    remote_sale_distance_multiplier,
+    market_messages,
+    reference_sale_origin,
+    remote_sale_distance_premium,
     purchase_unit_price,
     sale_unit_price,
     total_debt,
@@ -153,21 +155,28 @@ class TerminalGame:
                 return
             product_ids = (product_id,)
         city_name = self.session.state.player.location
+        messages = market_messages(self.session.state, city_name)
         self._output(f"{city_name} 市场")
+        for message in messages:
+            product_name = self.session.catalog.product(message.product_id).name
+            description = "库存积压" if message.kind.value == "surplus" else "货源紧张"
+            self._output(f"市场讯息：{product_name}{description}，预计还有 {message.remaining_days} 天")
         self._output("ID                 商品             采购价       售价")
         for product_id in product_ids:
             product = self.session.catalog.product(product_id)
             purchase = "-"
             if city_name in product.origins:
                 purchase = f"{purchase_unit_price(self.session.catalog, self.session.rules, self.session.state, product_id, city_name):,.2f}"
+            reference_origin = reference_sale_origin(self.session.catalog, product, city_name)
             sale = sale_unit_price(
                 self.session.catalog,
                 self.session.rules,
                 self.session.state,
                 product_id,
                 city_name,
-                remote_distance_multiplier=remote_sale_distance_multiplier(
-                    self.session.catalog, self.session.rules, product, city_name
+                origin_city=reference_origin,
+                remote_distance_premium=remote_sale_distance_premium(
+                    self.session.catalog, self.session.rules, reference_origin, city_name
                 ),
             )
             self._output(f"{product_id:<18} {product.name:<12} {purchase:>10} {sale:>10,.2f}")

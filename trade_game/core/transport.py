@@ -85,26 +85,26 @@ def shortest_distance_any(catalog: Catalog, origin: str, destination: str) -> in
     raise RuntimeError(f"静态路线图不连通：{origin} -> {destination}")
 
 
-def remote_sale_distance_multiplier(
-    catalog: Catalog, rules: GameRules, product: Product, city_name: str
+def remote_sale_distance_premium(
+    catalog: Catalog, rules: GameRules, origin_city: str, destination_city: str
 ) -> Decimal:
-    """按产地到销售城市的最远最短路径距离计算异地销售乘数。"""
+    """按真实产地到销售城市的最短路径计算固定单位流通溢价。"""
 
-    if city_name in product.origins:
-        return Decimal("1")
-    all_distances = [
-        shortest_distance_any(catalog, city_a, city_b)
-        for index, city_a in enumerate(catalog.cities)
-        for city_b in tuple(catalog.cities)[index + 1 :]
-    ]
-    minimum = min(all_distances)
-    maximum = max(all_distances)
-    distance = max(shortest_distance_any(catalog, origin, city_name) for origin in product.origins)
-    if maximum == minimum:
-        return rules.pricing.remote_sale_multiplier_min
-    ratio = Decimal(distance - minimum) / Decimal(maximum - minimum)
-    return rules.pricing.remote_sale_multiplier_min + ratio * (
-        rules.pricing.remote_sale_multiplier_max - rules.pricing.remote_sale_multiplier_min
+    catalog.city(origin_city)
+    catalog.city(destination_city)
+    if origin_city == destination_city:
+        return Decimal("0")
+    distance = shortest_distance_any(catalog, origin_city, destination_city)
+    return money(Decimal(distance) * rules.pricing.remote_sale_premium_per_km)
+
+
+def reference_sale_origin(catalog: Catalog, product: Product, destination_city: str) -> str:
+    """为未持有货物的行情板选择最近货源作为出售参考价。"""
+
+    catalog.city(destination_city)
+    return min(
+        product.origins,
+        key=lambda origin_city: (shortest_distance_any(catalog, origin_city, destination_city), origin_city),
     )
 
 

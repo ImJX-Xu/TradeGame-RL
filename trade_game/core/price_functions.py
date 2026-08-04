@@ -1,4 +1,4 @@
-"""价格函数模块：采购价、售价、价格扰动和金额量化。"""
+"""价格函数模块：采购价、售价、市场调整和金额量化。"""
 
 from __future__ import annotations
 
@@ -24,10 +24,10 @@ def can_purchase(product: Product, city_name: str) -> bool:
     return city_name in product.origins
 
 
-def price_lambda(state: GameState, city_name: str, product_id: str) -> Decimal:
-    """读取一个城市商品价格扰动。内部状态缺键时直接抛出 KeyError。"""
+def price_adjustment(state: GameState, city_name: str, product_id: str) -> Decimal:
+    """读取一个城市商品的当前价格调整。内部状态缺键时直接抛出 KeyError。"""
 
-    return state.market.current_lambdas[(city_name, product_id)]
+    return state.market.current_price_adjustments[(city_name, product_id)]
 
 
 def purchase_unit_price(
@@ -39,7 +39,7 @@ def purchase_unit_price(
     catalog.city(city_name)
     if not can_purchase(product, city_name):
         raise ValueError(f"{city_name} 不能采购商品 {product_id}")
-    price = product.base_purchase_price * (Decimal("1") + price_lambda(state, city_name, product_id))
+    price = product.base_purchase_price * (Decimal("1") + price_adjustment(state, city_name, product_id))
     return _positive_money(price, product_id, city_name)
 
 
@@ -50,21 +50,22 @@ def sale_unit_price(
     product_id: str,
     city_name: str,
     *,
-    remote_distance_multiplier: Decimal = Decimal("1"),
+    origin_city: str,
+    remote_distance_premium: Decimal = Decimal("0"),
 ) -> Decimal:
-    """计算当前城市出售一单位商品的价格。
-
-    异地距离乘数由路线规则层在后续阶段提供；本阶段默认值为 1。
-    """
+    """按真实产地、市场利润和单位流通成本计算当前城市售价。"""
 
     product = catalog.product(product_id)
     city = catalog.city(city_name)
-    if remote_distance_multiplier < Decimal("1"):
-        raise ValueError("异地距离乘数不能小于 1")
-    price = product.base_purchase_price * (Decimal("1") + price_lambda(state, city_name, product_id))
-    if not can_purchase(product, city_name):
+    catalog.city(origin_city)
+    if origin_city not in product.origins:
+        raise ValueError(f"{origin_city} 不是商品 {product_id} 的有效产地")
+    if remote_distance_premium < 0:
+        raise ValueError("异地距离溢价不能为负")
+    price = product.base_purchase_price * (Decimal("1") + price_adjustment(state, city_name, product_id))
+    if origin_city != city_name:
         price *= Decimal("1") + product.profit_margin_rate
-        price *= remote_distance_multiplier
+        price += remote_distance_premium
         if city.is_high_consumption:
             price *= rules.pricing.high_consumption_multiplier
     return _positive_money(price, product_id, city_name)

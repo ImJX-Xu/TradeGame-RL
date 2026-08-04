@@ -25,6 +25,10 @@ from .models import (
     GameOutcome,
     GameState,
     Loan,
+    MarketEvent,
+    MarketEventKind,
+    MarketMessage,
+    MarketRole,
     MarketState,
     PlayerState,
     Product,
@@ -33,7 +37,7 @@ from .models import (
     SpecialtyScope,
     TransportMode,
 )
-from .price_functions import can_purchase, money, price_lambda, purchase_unit_price, sale_unit_price, trade_total
+from .price_functions import can_purchase, money, price_adjustment, purchase_unit_price, sale_unit_price, trade_total
 from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
 from .rules import (
     FinanceRules,
@@ -54,13 +58,14 @@ from .rules import (
 from .session import GameSession, create_game_session
 from .settlement import conclude_if_needed, is_bankrupt, settlement_assets
 from .setup import create_initial_state
-from .timeflow import settle_elapsed_days
-from .trading import buy, sell
+from .timeflow import market_messages, settle_elapsed_days
+from .trading import SaleQuote, buy, quote_sale, sell
 from .transport import (
     RouteNotFound,
     TravelQuote,
     quote_travel,
-    remote_sale_distance_multiplier,
+    reference_sale_origin,
+    remote_sale_distance_premium,
     shortest_distance,
     shortest_distance_any,
     travel,
@@ -93,6 +98,10 @@ __all__ = [
     "FinanceRules",
     "InitialStateRules",
     "Loan",
+    "MarketEvent",
+    "MarketEventKind",
+    "MarketMessage",
+    "MarketRole",
     "MarketState",
     "MarketRules",
     "NextDay",
@@ -105,6 +114,7 @@ __all__ = [
     "Repay",
     "Route",
     "RouteNotFound",
+    "SaleQuote",
     "Sell",
     "SettlementRules",
     "SpecialtyScope",
@@ -133,10 +143,13 @@ __all__ = [
     "load_default_game_rules",
     "load_game_rules",
     "money",
-    "price_lambda",
+    "market_messages",
+    "price_adjustment",
     "purchase_unit_price",
     "quote_travel",
-    "remote_sale_distance_multiplier",
+    "quote_sale",
+    "reference_sale_origin",
+    "remote_sale_distance_premium",
     "repay",
     "remove_cargo_fifo",
     "repair_truck",
