@@ -7,6 +7,13 @@ from .batching import (
     ObservationSpec,
 )
 from .encoder import StateEncoder, StateEncoderConfig, StateEncoding
+from .evaluate import (
+    EvaluationSummary,
+    PolicyEpisode,
+    PolicyTraceStep,
+    evaluate_policy,
+    play_policy,
+)
 from .policy import (
     ActionBatch,
     ActionPolicy,
@@ -18,6 +25,16 @@ from .policy import (
     PolicyLogits,
     PolicySample,
 )
+from .ppo import PPOConfig, PPOTrainer, PPOUpdateMetrics
+from .rollout import RolloutBatch, RolloutBuffer, RolloutStep
+from .train import (
+    PPOTrainingConfig,
+    TrainingResult,
+    TrainingSnapshot,
+    load_training_config,
+    save_checkpoint,
+    train_ppo,
+)
 
 __all__ = [
     "ActionMaskBatch",
@@ -27,13 +44,30 @@ __all__ = [
     "ActorCriticEvaluation",
     "ActorCriticOutput",
     "ActorCriticSample",
+    "EvaluationSummary",
     "ObservationBatch",
     "ObservationBatchError",
     "ObservationSpec",
+    "PPOConfig",
+    "PPOTrainer",
+    "PPOTrainingConfig",
+    "PPOUpdateMetrics",
+    "PolicyEpisode",
+    "PolicyTraceStep",
     "StateEncoder",
     "StateEncoderConfig",
     "StateEncoding",
     "PolicyEvaluation",
     "PolicyLogits",
     "PolicySample",
+    "RolloutBatch",
+    "RolloutBuffer",
+    "RolloutStep",
+    "TrainingResult",
+    "TrainingSnapshot",
+    "evaluate_policy",
+    "load_training_config",
+    "play_policy",
+    "save_checkpoint",
+    "train_ppo",
 ]

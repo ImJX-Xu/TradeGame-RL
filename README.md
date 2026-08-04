@@ -149,3 +149,21 @@ action_tensor = sample.action.as_tensor()  # [batch_size, 6]
 `AgentEnvironment` 默认创建 150 天挑战回合。`reset` 返回初始观测和动作掩码；`step` 只接受 `ActionHead`，并始终通过动作解码器和 `GameSession.dispatch` 执行规则。
 
 默认 `reward_v1` 使用可清算经营资产的对数增量作为密集奖励。现金、货物当前变现价值、货车残值和债务统一计入资产，因此借款不会被误判为利润；挑战终局按最终资产给予额外奖励，破产会受到额外惩罚。每个转移还记录实际经过天数，供训练算法按游戏日而非决策次数折扣。
+
+## PPO 训练
+
+安装学习依赖后，使用默认 TOML 配置启动原生 PyTorch PPO：
+
+```powershell
+trade-game train --config trade_game/learning/configs/ppo_default.toml
+```
+
+`PPOTrainer` 保存结构化观测、条件动作掩码、六元组动作、旧策略对数概率、价值、奖励、终局位和实际经过天数。GAE 与 bootstrap 使用 `gamma ** elapsed_days`；更新阶段以同一观测和掩码重算联合动作概率，并执行策略裁剪、价值裁剪、熵正则、梯度裁剪和 KL 提前停止。
+
+训练配置中的默认编码器为 `16 / 64 / 128 / 128`，用于从零开始 PPO 的较小基线。训练命令支持覆盖更新次数、单次采样数量和检查点路径：
+
+```powershell
+trade-game train --updates 10 --rollout-steps 512 --checkpoint artifacts/ppo.pt
+```
+
+每隔配置指定的更新次数，训练入口会使用固定种子和确定性条件策略评估挑战回合；`play_policy` 返回每局动作、奖励和资产变化轨迹。

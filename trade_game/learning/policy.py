@@ -243,11 +243,17 @@ class ActionPolicy(nn.Module):
             buy_truck_quantity=finance_quantity[:, 2],
         )
 
-    def sample(self, logits: PolicyLogits, masks: ActionMaskBatch) -> PolicySample:
+    def sample(
+        self,
+        logits: PolicyLogits,
+        masks: ActionMaskBatch,
+        *,
+        deterministic: bool = False,
+    ) -> PolicySample:
         """从条件分支中依次采样，得到可由动作解码器直接处理的动作。"""
 
         action_distribution = _masked_categorical(logits.action, masks.action)
-        action_index = action_distribution.sample()
+        action_index = _draw(action_distribution, deterministic=deterministic)
         log_prob = action_distribution.log_prob(action_index)
         entropy = action_distribution.entropy()
         batch_size = action_index.size(0)
@@ -260,10 +266,10 @@ class ActionPolicy(nn.Module):
         buy_truck_selected = action_index == _BUY_TRUCK_ACTION_INDEX
 
         buy_product, buy_log_prob, buy_entropy = _sample_selected(
-            logits.buy_product, masks.buy_product, buy_selected
+            logits.buy_product, masks.buy_product, buy_selected, deterministic=deterministic
         )
         sell_product, sell_log_prob, sell_entropy = _sample_selected(
-            logits.sell_product, masks.sell_product, sell_selected
+            logits.sell_product, masks.sell_product, sell_selected, deterministic=deterministic
         )
         product_index = torch.where(buy_selected, buy_product, sell_product)
         log_prob = log_prob + buy_log_prob + sell_log_prob
@@ -272,21 +278,24 @@ class ActionPolicy(nn.Module):
         buy_quantity_logits = _select_candidate(logits.buy_quantity, product_index)
         buy_quantity_mask = _select_candidate(masks.buy_quantity, product_index)
         buy_quantity, buy_quantity_log_prob, buy_quantity_entropy = _sample_selected(
-            buy_quantity_logits, buy_quantity_mask, buy_selected
+            buy_quantity_logits, buy_quantity_mask, buy_selected, deterministic=deterministic
         )
         sell_quantity_logits = _select_candidate(logits.sell_quantity, product_index)
         sell_quantity_mask = _select_candidate(masks.sell_quantity, product_index)
         sell_quantity, sell_quantity_log_prob, sell_quantity_entropy = _sample_selected(
-            sell_quantity_logits, sell_quantity_mask, sell_selected
+            sell_quantity_logits, sell_quantity_mask, sell_selected, deterministic=deterministic
         )
         borrow_quantity, borrow_log_prob, borrow_entropy = _sample_selected(
-            logits.borrow_quantity, masks.borrow_quantity, borrow_selected
+            logits.borrow_quantity, masks.borrow_quantity, borrow_selected, deterministic=deterministic
         )
         repay_quantity, repay_log_prob, repay_entropy = _sample_selected(
-            logits.repay_quantity, masks.repay_quantity, repay_selected
+            logits.repay_quantity, masks.repay_quantity, repay_selected, deterministic=deterministic
         )
         truck_quantity, truck_log_prob, truck_entropy = _sample_selected(
-            logits.buy_truck_quantity, masks.buy_truck_quantity, buy_truck_selected
+            logits.buy_truck_quantity,
+            masks.buy_truck_quantity,
+            buy_truck_selected,
+            deterministic=deterministic,
         )
         quantity_index = torch.zeros(batch_size, dtype=torch.long, device=action_index.device)
         quantity_index = torch.where(buy_selected, buy_quantity, quantity_index)
@@ -312,12 +321,15 @@ class ActionPolicy(nn.Module):
         )
 
         city_index, city_log_prob, city_entropy = _sample_selected(
-            logits.travel_city, masks.travel_city, travel_selected
+            logits.travel_city, masks.travel_city, travel_selected, deterministic=deterministic
         )
         travel_transport_logits = _select_candidate(logits.travel_transport, city_index)
         travel_transport_mask = _select_candidate(masks.travel_transport, city_index)
         transport_index, transport_log_prob, transport_entropy = _sample_selected(
-            travel_transport_logits, travel_transport_mask, travel_selected
+            travel_transport_logits,
+            travel_transport_mask,
+            travel_selected,
+            deterministic=deterministic,
         )
         travel_fast_logits = _select_candidate(
             _select_candidate(logits.travel_fast, city_index),
@@ -328,7 +340,7 @@ class ActionPolicy(nn.Module):
             transport_index,
         )
         fast_index, fast_log_prob, fast_entropy = _sample_selected(
-            travel_fast_logits, travel_fast_mask, travel_selected
+            travel_fast_logits, travel_fast_mask, travel_selected, deterministic=deterministic
         )
         log_prob = log_prob + city_log_prob + transport_log_prob + fast_log_prob
         entropy = entropy + city_entropy + transport_entropy + fast_entropy
@@ -481,11 +493,17 @@ class ActorCritic(nn.Module):
             value=self.value_head(encoding.state).squeeze(-1),
         )
 
-    def sample(self, batch: ObservationBatch, masks: ActionMaskBatch) -> ActorCriticSample:
+    def sample(
+        self,
+        batch: ObservationBatch,
+        masks: ActionMaskBatch,
+        *,
+        deterministic: bool = False,
+    ) -> ActorCriticSample:
         """从当前策略采样一批合法动作。"""
 
         output = self(batch)
-        sample = self.policy.sample(output.policy, masks)
+        sample = self.policy.sample(output.policy, masks, deterministic=deterministic)
         return ActorCriticSample(
             action=sample.action,
             log_prob=sample.log_prob,
@@ -582,17 +600,23 @@ def _sample_selected(
     logits: Tensor,
     valid: Tensor,
     selected: Tensor,
+    *,
+    deterministic: bool,
 ) -> tuple[Tensor, Tensor, Tensor]:
     samples = torch.zeros(selected.size(0), dtype=torch.long, device=selected.device)
     log_prob = torch.zeros(selected.size(0), dtype=logits.dtype, device=logits.device)
     entropy = torch.zeros(selected.size(0), dtype=logits.dtype, device=logits.device)
     if bool(selected.any()):
         distribution = _masked_categorical(logits[selected], valid[selected])
-        selected_samples = distribution.sample()
+        selected_samples = _draw(distribution, deterministic=deterministic)
         samples[selected] = selected_samples
         log_prob[selected] = distribution.log_prob(selected_samples)
         entropy[selected] = distribution.entropy()
     return samples, log_prob, entropy
+
+
+def _draw(distribution: Categorical, *, deterministic: bool) -> Tensor:
+    return distribution.probs.argmax(dim=-1) if deterministic else distribution.sample()
 
 
 def _evaluate_selected(

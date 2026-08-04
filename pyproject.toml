@@ -13,7 +13,7 @@ authors = [{ name = "TradeGame-RL contributors" }]
 dependencies = []
 
 [project.scripts]
-trade-game = "trade_game.ui.cli:main"
+trade-game = "trade_game.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
@@ -29,3 +29,4 @@ include = ["trade_game*"]
 
 [tool.setuptools.package-data]
 "trade_game.core.data" = ["*.csv", "*.toml"]
+"trade_game.learning.configs" = ["*.toml"]
