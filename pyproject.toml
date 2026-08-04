@@ -17,6 +17,7 @@ trade-game = "trade_game.ui.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+ui = ["arcade>=3.3,<4"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

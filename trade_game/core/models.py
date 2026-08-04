@@ -148,10 +148,11 @@ class PlayerState:
 
 @dataclass(frozen=True, slots=True)
 class MarketState:
-    """市场状态；价格规则只在后续阶段消费这些数据。"""
+    """市场状态，包含当前价格扰动、昨日扰动和有限的近期走势。"""
 
     current_lambdas: Mapping[CityProductKey, Decimal]
     previous_lambdas: Mapping[CityProductKey, Decimal]
+    lambda_history: Mapping[CityProductKey, tuple[Decimal, ...]]
 
 
 @dataclass(frozen=True, slots=True)

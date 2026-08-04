@@ -15,6 +15,9 @@ from .results import GameEvent
 from .rules import GameRules
 
 
+PRICE_HISTORY_DAYS = 7
+
+
 def settle_elapsed_days(
     catalog: Catalog,
     rules: GameRules,
@@ -97,7 +100,12 @@ def _refresh_market(catalog: Catalog, rules: GameRules, market: MarketState, rng
             previous = market.current_lambdas[(city_name, product_id)]
             noise = Decimal(str(rng.gauss(0.0, float(sigma))))
             refreshed[(city_name, product_id)] = min(upper, max(lower, alpha * previous + noise))
+    history = {
+        key: (*market.lambda_history[key], value)[-PRICE_HISTORY_DAYS:]
+        for key, value in refreshed.items()
+    }
     return MarketState(
         current_lambdas=MappingProxyType(refreshed),
         previous_lambdas=market.current_lambdas,
+        lambda_history=MappingProxyType(history),
     )

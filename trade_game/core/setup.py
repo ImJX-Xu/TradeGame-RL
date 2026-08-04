@@ -24,6 +24,7 @@ def create_initial_state(
             for product_id in catalog.products
         }
     )
+    lambda_history = MappingProxyType({key: (value,) for key, value in zero_lambdas.items()})
     return GameState(
         player=PlayerState(
             cash=initial.initial_cash,
@@ -36,7 +37,11 @@ def create_initial_state(
         ),
         day=initial.initial_day,
         mode=mode,
-        market=MarketState(current_lambdas=zero_lambdas, previous_lambdas=zero_lambdas),
+        market=MarketState(
+            current_lambdas=zero_lambdas,
+            previous_lambdas=zero_lambdas,
+            lambda_history=lambda_history,
+        ),
         loans=(),
         visited_cities=frozenset({initial.initial_location}),
         loss_by_product=MappingProxyType({}),

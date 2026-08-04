@@ -11,6 +11,12 @@
 
 ## 游玩
 
+图形界面是可选依赖，首次使用前安装：
+
+```powershell
+pip install -e ".[ui]"
+```
+
 在仓库目录执行：
 
 ```powershell
@@ -21,6 +27,14 @@ python -m trade_game play
 
 ```powershell
 python -m trade_game play --seed 7 --mode challenge
+```
+
+图形界面以货运调度台为主屏：在地图或“路线”页选择直达站点并发运；“交易”页可选择商品、调整数量后采购或出售；“车辆”和“融资”页分别处理维修、购车、借款与还款；底部“日结”推进一天。所有图形操作都通过游戏核心命令执行。
+
+终端界面可使用 `--terminal` 启动：
+
+```powershell
+python -m trade_game play --terminal
 ```
 
 终端内使用 `help` 查看命令。常用操作包括：
