@@ -129,3 +129,17 @@ state = encoder(state_batch).state  # [batch_size, 256]
 ```
 
 市场价格保持为 `[B, 城市, 商品, 4]`，货物批次按当前 batch 的最大批次数动态补齐；`cargo_valid` 标记真实批次，动作掩码仍独立于状态张量。编码器以当前全局经营状态为查询，分别从市场、路线和货物实体中汇聚当前最相关的信息，再输出固定维度状态向量。
+
+## 策略与价值网络
+
+`ActorCritic` 共享 `StateEncoder`。策略按命令实际使用的参数顺序生成联合动作概率：采购和出售为“商品、数量”，运输为“城市、运输方式、加急”，借贷和购车为“数量”；维修和推进日期没有额外参数。每个条件分支都在采样前读取对应的动作掩码。
+
+```python
+from trade_game.learning import ActorCritic
+
+model = ActorCritic(state_batch.spec)
+sample = model.sample(state_batch, mask_batch)
+action_tensor = sample.action.as_tensor()  # [batch_size, 6]
+```
+
+训练时使用 `model.evaluate_actions(state_batch, mask_batch, actions)` 重算同一批轨迹动作的联合 `log_prob`、条件熵和全局价值 `V(s)`，供后续 PPO 目标函数使用。

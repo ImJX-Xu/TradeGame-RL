@@ -26,6 +26,8 @@ class StateEncoding:
     """状态编码结果及各对象集合相对当前经营状态的注意力。"""
 
     state: Tensor
+    market_tokens: Tensor
+    route_tokens: Tensor
     global_context: Tensor
     market_context: Tensor
     route_context: Tensor
@@ -147,6 +149,8 @@ class StateEncoder(nn.Module):
         )
         return StateEncoding(
             state=state,
+            market_tokens=market_tokens,
+            route_tokens=route_tokens,
             global_context=global_context,
             market_context=market_context,
             route_context=route_context,

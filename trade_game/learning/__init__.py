@@ -7,13 +7,33 @@ from .batching import (
     ObservationSpec,
 )
 from .encoder import StateEncoder, StateEncoderConfig, StateEncoding
+from .policy import (
+    ActionBatch,
+    ActionPolicy,
+    ActorCritic,
+    ActorCriticEvaluation,
+    ActorCriticOutput,
+    ActorCriticSample,
+    PolicyEvaluation,
+    PolicyLogits,
+    PolicySample,
+)
 
 __all__ = [
     "ActionMaskBatch",
+    "ActionBatch",
+    "ActionPolicy",
+    "ActorCritic",
+    "ActorCriticEvaluation",
+    "ActorCriticOutput",
+    "ActorCriticSample",
     "ObservationBatch",
     "ObservationBatchError",
     "ObservationSpec",
     "StateEncoder",
     "StateEncoderConfig",
     "StateEncoding",
+    "PolicyEvaluation",
+    "PolicyLogits",
+    "PolicySample",
 ]
