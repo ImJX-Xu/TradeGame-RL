@@ -6,10 +6,14 @@ from .batching import (
     ObservationBatchError,
     ObservationSpec,
 )
+from .encoder import StateEncoder, StateEncoderConfig, StateEncoding
 
 __all__ = [
     "ActionMaskBatch",
     "ObservationBatch",
     "ObservationBatchError",
     "ObservationSpec",
+    "StateEncoder",
+    "StateEncoderConfig",
+    "StateEncoding",
 ]

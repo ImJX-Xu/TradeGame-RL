@@ -115,15 +115,17 @@ print(observation.market_history_valid)     # D-6、D-4、D-2、D 的有效位�
 
 动作掩码与状态观测保持分离。策略网络使用状态理解市场和经营状况，再用掩码排除无法提交给 `GameSession.dispatch` 的候选动作。
 
-学习层先将结构化观测批量化为 PyTorch 张量，不在此阶段进行 flatten、embedding 或 Attention：
+学习层先将结构化观测批量化为 PyTorch 张量，再由 `StateEncoder` 执行实体嵌入、行情编码与目标注意力汇聚：
 
 ```python
-from trade_game.learning import ActionMaskBatch, ObservationBatch
+from trade_game.learning import ActionMaskBatch, ObservationBatch, StateEncoder
 
 observations = [build_observation(session, vocabulary)]
 masks = [build_action_mask(session, vocabulary)]
 state_batch = ObservationBatch.from_observations(observations)
 mask_batch = ActionMaskBatch.from_masks(masks)
+encoder = StateEncoder(state_batch.spec)
+state = encoder(state_batch).state  # [batch_size, 256]
 ```
 
-市场价格保持为 `[B, 城市, 商品, 4]`，货物批次按当前 batch 的最大批次数动态补齐；`cargo_valid` 标记真实批次，动作掩码仍独立于状态张量。
+市场价格保持为 `[B, 城市, 商品, 4]`，货物批次按当前 batch 的最大批次数动态补齐；`cargo_valid` 标记真实批次，动作掩码仍独立于状态张量。编码器以当前全局经营状态为查询，分别从市场、路线和货物实体中汇聚当前最相关的信息，再输出固定维度状态向量。
