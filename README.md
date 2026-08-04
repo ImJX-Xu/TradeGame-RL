@@ -143,3 +143,9 @@ action_tensor = sample.action.as_tensor()  # [batch_size, 6]
 ```
 
 训练时使用 `model.evaluate_actions(state_batch, mask_batch, actions)` 重算同一批轨迹动作的联合 `log_prob`、条件熵和全局价值 `V(s)`，供后续 PPO 目标函数使用。
+
+## 训练回合
+
+`AgentEnvironment` 默认创建 150 天挑战回合。`reset` 返回初始观测和动作掩码；`step` 只接受 `ActionHead`，并始终通过动作解码器和 `GameSession.dispatch` 执行规则。
+
+默认 `reward_v1` 使用可清算经营资产的对数增量作为密集奖励。现金、货物当前变现价值、货车残值和债务统一计入资产，因此借款不会被误判为利润；挑战终局按最终资产给予额外奖励，破产会受到额外惩罚。每个转移还记录实际经过天数，供训练算法按游戏日而非决策次数折扣。
