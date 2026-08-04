@@ -365,7 +365,7 @@ def _parse_vehicles(raw: Mapping[str, Any]) -> VehicleRules:
         "vehicles",
     )
     return VehicleRules(
-        purchase_price=_decimal(raw["purchase_price"], "vehicles.purchase_price", minimum=Decimal("0")),
+        purchase_price=_decimal(raw["purchase_price"], "vehicles.purchase_price", minimum=Decimal("0.01")),
         capacity_per_vehicle=_integer(raw["capacity_per_vehicle"], "vehicles.capacity_per_vehicle", minimum=1),
         repair_cost_per_percent=_decimal(raw["repair_cost_per_percent"], "vehicles.repair_cost_per_percent", minimum=Decimal("0")),
         repair_days=_integer(raw["repair_days"], "vehicles.repair_days", minimum=1),
