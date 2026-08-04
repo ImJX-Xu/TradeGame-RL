@@ -25,6 +25,7 @@ from .models import (
     GameOutcome,
     GameState,
     Loan,
+    MarketBulletin,
     MarketEvent,
     MarketEventKind,
     MarketMessage,
@@ -58,7 +59,7 @@ from .rules import (
 from .session import GameSession, create_game_session
 from .settlement import conclude_if_needed, is_bankrupt, settlement_assets
 from .setup import create_initial_state
-from .timeflow import market_messages, settle_elapsed_days
+from .timeflow import market_bulletins, market_messages, settle_elapsed_days
 from .trading import SaleQuote, buy, quote_sale, sell
 from .transport import (
     RouteNotFound,
@@ -98,6 +99,7 @@ __all__ = [
     "FinanceRules",
     "InitialStateRules",
     "Loan",
+    "MarketBulletin",
     "MarketEvent",
     "MarketEventKind",
     "MarketMessage",
@@ -143,6 +145,7 @@ __all__ = [
     "load_default_game_rules",
     "load_game_rules",
     "money",
+    "market_bulletins",
     "market_messages",
     "price_adjustment",
     "purchase_unit_price",

@@ -17,6 +17,7 @@ from trade_game.core import (
     GameEvent,
     GameMode,
     GameSession,
+    MarketEventKind,
     NextDay,
     RepairTruck,
     Repay,
@@ -28,7 +29,7 @@ from trade_game.core import (
     cargo_quantity,
     create_game_session,
     free_capacity,
-    market_messages,
+    market_bulletins,
     money,
     purchase_unit_price,
     quote_sale,
@@ -70,6 +71,7 @@ WINDOW_MIN_HEIGHT = 720
 WINDOW_TITLE = "风物千程"
 TAB_NAMES = ("采购", "出售", "行情", "路线", "车辆", "融资", "库存", "路书")
 FINANCE_STEP = Decimal("100")
+MARKET_PAGE_SIZE = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +144,7 @@ class TradeGameWindow(arcade.Window):
         layout = main_layout(self.width, self.height, route_view=self.active_tab == "路线")
         self._draw_title(layout)
         self._draw_status(layout)
+        self._draw_market_notice(layout.market_notice)
         if self.active_tab == "路线":
             self._draw_map(layout)
         else:
@@ -249,6 +252,60 @@ class TradeGameWindow(arcade.Window):
             draw_status_value(cell, label, value, color=color)
             if index:
                 arcade.draw_line(cell.left, cell.bottom + 5, cell.left, cell.top - 5, DARK_SHADOW, 1)
+
+    def _draw_market_notice(self, bounds: Rect) -> None:
+        """在所有工作页签上方显示当前决策关联城市的简短重要行情。"""
+
+        state = self.session.state
+        bulletins = market_bulletins(self.session.catalog, self.session.rules, state)
+        fill = (212, 226, 222) if bulletins else (218, 218, 214)
+        draw_raised_panel(bounds, fill=fill)
+        arcade.draw_lrbt_rectangle_filled(
+            bounds.left + 5,
+            bounds.left + 9,
+            bounds.bottom + 6,
+            bounds.top - 6,
+            ACCENT_TEAL if bulletins else MUTED,
+        )
+        arcade.draw_text(
+            "市场电报",
+            bounds.left + 20,
+            bounds.center_y,
+            TEXT_DARK,
+            13,
+            font_name="Microsoft YaHei UI",
+            bold=True,
+            anchor_y="center",
+        )
+        arcade.draw_line(
+            bounds.left + 90,
+            bounds.bottom + 10,
+            bounds.left + 90,
+            bounds.top - 10,
+            MUTED,
+            1,
+        )
+        if bulletins:
+            bulletin = bulletins[0]
+            message_text = _format_market_message(
+                "、".join(bulletin.cities),
+                self.session.catalog.product(bulletin.product_id).name,
+                bulletin.kind,
+                bulletin.remaining_days,
+            )
+            text_color = TEXT_DARK
+        else:
+            message_text = "全国市场：近期供需平稳，留意行情变化。"
+            text_color = MUTED
+        arcade.draw_text(
+            _short_text(message_text, max(24, int((bounds.width - 126) / 12))),
+            bounds.left + 106,
+            bounds.center_y,
+            text_color,
+            12,
+            font_name="Microsoft YaHei UI",
+            anchor_y="center",
+        )
 
     def _draw_map(self, layout: MainLayout) -> None:
         draw_raised_panel(layout.map)
@@ -606,7 +663,7 @@ class TradeGameWindow(arcade.Window):
 
         catalog = self.session.catalog
         city_names = tuple(catalog.cities)
-        page_size = 10
+        page_size = MARKET_PAGE_SIZE
         products = tuple(catalog.products.values())
         page_count = (len(products) + page_size - 1) // page_size
         self.market_page = min(self.market_page, max(0, page_count - 1))
@@ -638,29 +695,6 @@ class TradeGameWindow(arcade.Window):
                 city_name,
                 emphasis=city_name == self.market_city,
             )
-
-        messages = market_messages(self.session.state, self.market_city)
-        if messages:
-            message_text = "；".join(
-                (
-                    f"{self.session.catalog.product(message.product_id).name}库存积压，预计还有{message.remaining_days}天"
-                    if message.kind.value == "surplus"
-                    else f"{self.session.catalog.product(message.product_id).name}货源紧张，预计还有{message.remaining_days}天"
-                )
-                for message in messages
-            )
-            market_message = f"市场讯息：{message_text}"
-        else:
-            market_message = "市场讯息：近期供需平稳。"
-        arcade.draw_text(
-            _short_text(market_message, 72),
-            bounds.left,
-            bounds.top - 118,
-            CURRENT_CITY if messages else MUTED,
-            11,
-            font_name="Microsoft YaHei UI",
-            anchor_y="top",
-        )
 
         header = Rect(bounds.left, bounds.top - 148, bounds.right, bounds.top - 116)
         arcade.draw_lrbt_rectangle_filled(header.left, header.right, header.bottom, header.top, (211, 219, 216))
@@ -932,7 +966,9 @@ class TradeGameWindow(arcade.Window):
         for label, x, anchor_x in columns:
             arcade.draw_text(label, x, header.center_y, MUTED, 12, font_name="Microsoft YaHei UI", bold=True, anchor_x=anchor_x, anchor_y="center")
         row_top = header.bottom - 6
-        for lot in lots[:12]:
+        reserved_bottom = bounds.bottom + 68
+        visible_rows = max(1, int((row_top - reserved_bottom) // 42))
+        for lot in lots[:visible_rows]:
             product = self.session.catalog.product(lot.product_id)
             shelf_life = "-" if lot.shelf_life_remaining_days is None else f"{lot.shelf_life_remaining_days} 天"
             color = NEGATIVE if lot.shelf_life_remaining_days is not None and lot.shelf_life_remaining_days <= 2 else TEXT_DARK
@@ -1073,7 +1109,7 @@ class TradeGameWindow(arcade.Window):
             return
         if action == "market-page":
             assert isinstance(hitbox.value, int)
-            page_size = 10
+            page_size = MARKET_PAGE_SIZE
             page_count = (len(self.session.catalog.products) + page_size - 1) // page_size
             self.market_page = max(0, min(page_count - 1, self.market_page + hitbox.value))
             return
@@ -1265,6 +1301,19 @@ def _short_text(value: str, maximum_length: int) -> str:
     """在固定高度状态栏中保留完整前缀，避免提示文字覆盖底部命令。"""
 
     return value if len(value) <= maximum_length else f"{value[: maximum_length - 3]}..."
+
+
+def _format_market_message(
+    market_scope: str,
+    product_name: str,
+    kind: MarketEventKind,
+    remaining_days: int,
+) -> str:
+    """将公开市场事件改写为玩家能直接采取行动的行情句子。"""
+
+    if kind is MarketEventKind.SURPLUS:
+        return f"{market_scope}：{product_name}库存积压，当前进货价格偏低，预计持续 {remaining_days} 天。"
+    return f"{market_scope}：{product_name}货源紧张，当地出货价格走高，预计持续 {remaining_days} 天。"
 
 
 def _category_label(category: str) -> str:

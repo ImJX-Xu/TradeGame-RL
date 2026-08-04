@@ -12,6 +12,7 @@ from .finance import accrue_daily_interest
 from .models import (
     CargoLot,
     GameState,
+    MarketBulletin,
     MarketEvent,
     MarketEventKind,
     MarketMessage,
@@ -96,6 +97,38 @@ def market_messages(state: GameState, city_name: str) -> tuple[MarketMessage, ..
         if city_name in event.cities and event.start_day <= state.day <= event.end_day
     ]
     return tuple(sorted(messages, key=lambda item: (item.kind.value, item.product_id)))
+
+
+def market_bulletins(
+    catalog: Catalog,
+    rules: GameRules,
+    state: GameState,
+) -> tuple[MarketBulletin, ...]:
+    """返回当前全局行情，按实际生效幅度、商品权重和覆盖范围排序。"""
+
+    active_events = tuple(
+        event
+        for event in state.market.active_events
+        if event.start_day <= state.day <= event.end_day
+    )
+    ranked_events = sorted(
+        active_events,
+        key=lambda event: (
+            -_event_importance(catalog, rules, event, state.day),
+            event.end_day - state.day,
+            event.product_id,
+            event.cities,
+        ),
+    )
+    return tuple(
+        MarketBulletin(
+            kind=event.kind,
+            product_id=event.product_id,
+            cities=event.cities,
+            remaining_days=event.end_day - state.day + 1,
+        )
+        for event in ranked_events
+    )
 
 
 def _age_cargo(lots: tuple[CargoLot, ...]) -> tuple[tuple[CargoLot, ...], int]:
@@ -299,3 +332,14 @@ def _event_adjustment(event: MarketEvent, day: int, ramp_days: int) -> Decimal:
         Decimal(remaining_days + 1) / Decimal(ramp_days + 1),
     )
     return event.peak_adjustment * ramp
+
+
+def _event_importance(
+    catalog: Catalog,
+    rules: GameRules,
+    event: MarketEvent,
+    day: int,
+) -> Decimal:
+    coverage = Decimal("1") + Decimal(len(event.cities) - 1) * Decimal("0.15")
+    current_effect = abs(_event_adjustment(event, day, rules.market.event_ramp_days))
+    return current_effect * catalog.product(event.product_id).event_weight * coverage

@@ -132,6 +132,16 @@ class MarketMessage:
 
 
 @dataclass(frozen=True, slots=True)
+class MarketBulletin:
+    """按全局重要性排序后可公开展示的一条市场电报。"""
+
+    kind: MarketEventKind
+    product_id: str
+    cities: tuple[str, ...]
+    remaining_days: int
+
+
+@dataclass(frozen=True, slots=True)
 class Route:
     """一条无向路线的原始数据记录。"""
 

@@ -13,6 +13,7 @@ class MainLayout:
 
     title: Rect
     status: Rect
+    market_notice: Rect
     navigation: Rect
     map: Rect
     detail: Rect
@@ -33,8 +34,16 @@ def main_layout(width: int, height: int, *, route_view: bool = True) -> MainLayo
     title = Rect(margin, height - margin - title_height, width - margin, height - margin)
     status = Rect(margin, title.bottom - status_height - 8, width - margin, title.bottom - 8)
     footer = Rect(margin, margin, width - margin, margin + footer_height)
+    market_notice_height = 52
+    market_notice_gap = 8
+    market_notice = Rect(
+        margin,
+        status.bottom - market_notice_gap - market_notice_height,
+        width - margin,
+        status.bottom - market_notice_gap,
+    )
     content_bottom = footer.top + 10
-    content_top = status.bottom - 10
+    content_top = market_notice.bottom - 10
     navigation = Rect(margin, content_bottom, margin + navigation_width, content_top)
     workspace = Rect(navigation.right + 10, content_bottom, width - margin, content_top)
     if route_view:
@@ -48,6 +57,7 @@ def main_layout(width: int, height: int, *, route_view: bool = True) -> MainLayo
     return MainLayout(
         title=title,
         status=status,
+        market_notice=market_notice,
         navigation=navigation,
         map=map,
         detail=detail,
