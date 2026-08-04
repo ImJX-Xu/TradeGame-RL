@@ -7,11 +7,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 from enum import IntEnum
 from typing import ClassVar, Mapping
 
-from trade_game.core import Catalog, CommandType, TransportMode
+from trade_game.core import Catalog, CommandType, TransportMode, money
 
 
 class ActionProtocolError(ValueError):
@@ -59,6 +59,23 @@ class QuantityBin(IntEnum):
         if self is QuantityBin.ONE:
             return None
         return Decimal(self.value * 5) / Decimal("100")
+
+
+def integer_quantity_from_bin(quantity_bin: QuantityBin, maximum: int) -> int:
+    """将数量档位换算为整数数量；调用方保证最大数量为正。"""
+
+    ratio = quantity_bin.ratio
+    if ratio is None:
+        return 1
+    return int((Decimal(maximum) * ratio).to_integral_value(rounding=ROUND_CEILING))
+
+
+def money_amount_from_bin(quantity_bin: QuantityBin, maximum: Decimal) -> Decimal:
+    """将数量档位换算为货币金额；调用方保证最大金额为正。"""
+
+    ratio = quantity_bin.ratio
+    amount = min(Decimal("1"), maximum) if ratio is None else maximum * ratio
+    return money(amount)
 
 
 ACTION_TYPES: tuple[CommandType, ...] = (
@@ -202,4 +219,6 @@ __all__ = [
     "ActionProtocolError",
     "ActionVocabulary",
     "QuantityBin",
+    "integer_quantity_from_bin",
+    "money_amount_from_bin",
 ]

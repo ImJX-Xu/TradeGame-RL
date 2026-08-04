@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_CEILING
+from decimal import Decimal
 
 from trade_game.core import (
     Borrow,
@@ -19,9 +19,8 @@ from trade_game.core import (
     Travel,
     available_credit,
     cargo_quantity,
-    free_capacity,
-    money,
-    purchase_unit_price,
+    maximum_purchase_quantity,
+    maximum_truck_quantity,
     total_debt,
 )
 
@@ -30,6 +29,8 @@ from .actions import (
     ActionProtocolError,
     ActionVocabulary,
     QuantityBin,
+    integer_quantity_from_bin,
+    money_amount_from_bin,
 )
 
 
@@ -80,7 +81,7 @@ class ActionDecoder:
             return BuyTruck(
                 quantity=_resolve_integer_quantity(
                     QuantityBin(action.quantity_index),
-                    self._maximum_truck_quantity(session),
+                    maximum_truck_quantity(session.rules, session.state),
                     "可购买货车数量",
                 )
             )
@@ -92,7 +93,7 @@ class ActionDecoder:
         product_id = self.vocabulary.product_id(action.product_index)
         quantity = _resolve_integer_quantity(
             QuantityBin(action.quantity_index),
-            self._maximum_buy_quantity(session, product_id),
+            maximum_purchase_quantity(session.catalog, session.rules, session.state, product_id),
             "可采购数量",
         )
         return Buy(product_id=product_id, quantity=quantity)
@@ -105,26 +106,6 @@ class ActionDecoder:
             "可出售数量",
         )
         return Sell(product_id=product_id, quantity=quantity)
-
-    def _maximum_buy_quantity(self, session: GameSession, product_id: str) -> int:
-        state = session.state
-        maximum = free_capacity(state.player.cargo_lots, state.player.truck_total_capacity)
-        product = session.catalog.product(product_id)
-        if state.player.location not in product.origins:
-            return 0
-        unit_price = purchase_unit_price(
-            session.catalog,
-            session.rules,
-            state,
-            product_id,
-            state.player.location,
-        )
-        return min(maximum, int(state.player.cash / unit_price))
-
-    @staticmethod
-    def _maximum_truck_quantity(session: GameSession) -> int:
-        price = session.rules.vehicles.purchase_price
-        return int(session.state.player.cash / price)
 
 
 def decode_action(
@@ -140,20 +121,13 @@ def decode_action(
 def _resolve_integer_quantity(quantity_bin: QuantityBin, maximum: int, field: str) -> int:
     if maximum <= 0:
         raise ActionDecodeError(f"当前没有{field}")
-    ratio = quantity_bin.ratio
-    if ratio is None:
-        return 1
-    return int(
-        (Decimal(maximum) * ratio).to_integral_value(rounding=ROUND_CEILING)
-    )
+    return integer_quantity_from_bin(quantity_bin, maximum)
 
 
 def _resolve_amount(quantity_bin: QuantityBin, maximum: Decimal, field: str) -> Decimal:
     if maximum <= 0:
         raise ActionDecodeError(f"当前没有{field}")
-    ratio = quantity_bin.ratio
-    amount = min(Decimal("1"), maximum) if ratio is None else maximum * ratio
-    amount = money(amount)
+    amount = money_amount_from_bin(quantity_bin, maximum)
     if amount <= 0:
         raise ActionDecodeError(f"当前{field}低于最小金额单位")
     return amount

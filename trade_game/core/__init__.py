@@ -60,18 +60,20 @@ from .session import GameSession, create_game_session
 from .settlement import conclude_if_needed, is_bankrupt, settlement_assets
 from .setup import create_initial_state
 from .timeflow import market_bulletins, market_messages, settle_elapsed_days
-from .trading import SaleQuote, buy, quote_sale, sell
+from .trading import SaleQuote, buy, maximum_purchase_quantity, quote_sale, sell
 from .transport import (
     RouteNotFound,
     TravelQuote,
+    can_travel,
     quote_travel,
     reference_sale_origin,
     remote_sale_distance_premium,
     shortest_distance,
     shortest_distance_any,
     travel,
+    travel_cost,
 )
-from .vehicles import buy_truck, repair_truck
+from .vehicles import buy_truck, maximum_truck_quantity, repair_truck
 
 __all__ = [
     "Borrow",
@@ -133,6 +135,7 @@ __all__ = [
     "borrow",
     "buy",
     "buy_truck",
+    "can_travel",
     "can_purchase",
     "cargo_quantity",
     "conclude_if_needed",
@@ -147,6 +150,8 @@ __all__ = [
     "money",
     "market_bulletins",
     "market_messages",
+    "maximum_purchase_quantity",
+    "maximum_truck_quantity",
     "price_adjustment",
     "purchase_unit_price",
     "quote_travel",
@@ -166,4 +171,5 @@ __all__ = [
     "total_debt",
     "total_principal",
     "travel",
+    "travel_cost",
 ]

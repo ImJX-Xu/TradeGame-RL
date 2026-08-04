@@ -24,6 +24,22 @@ class SaleQuote:
     average_unit_price: Decimal
 
 
+def maximum_purchase_quantity(
+    catalog: Catalog, rules: GameRules, state: GameState, product_id: str
+) -> int:
+    """返回当前位置可采购指定商品的最大整数数量。"""
+
+    product = catalog.product(product_id)
+    city_name = state.player.location
+    if city_name not in product.origins:
+        return 0
+    capacity = free_capacity(state.player.cargo_lots, state.player.truck_total_capacity)
+    if capacity == 0:
+        return 0
+    unit_price = purchase_unit_price(catalog, rules, state, product_id, city_name)
+    return min(capacity, int(state.player.cash / unit_price))
+
+
 def buy(catalog: Catalog, rules: GameRules, state: GameState, command: Buy) -> CommandResult:
     """执行采购并占用一个经营日；失败时返回原状态且不产生副作用。"""
 

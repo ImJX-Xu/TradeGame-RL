@@ -79,3 +79,12 @@ result = session.dispatch(command)
 ```
 
 动作协议只保存稳定索引，不依赖 NumPy、Gymnasium 或 PyTorch。one-hot、embedding 和策略网络属于后续学习层。
+
+推理前使用动作掩码屏蔽当前不能执行的选择。掩码只包含布尔值：先读取 `action`，再按已选命令读取条件参数掩码。例如采购依次读取 `buy_product` 和 `buy_quantity[product_index]`；运输依次读取 `travel_city`、`travel_transport[city_index]`、`travel_fast[city_index][transport_index]`。
+
+```python
+from trade_game.agent import build_action_mask
+
+mask = build_action_mask(session, vocabulary)
+can_travel = mask.action[vocabulary.action_index(CommandType.TRAVEL)]
+```

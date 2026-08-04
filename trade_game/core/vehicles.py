@@ -12,6 +12,12 @@ from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
 from .rules import GameRules
 
 
+def maximum_truck_quantity(rules: GameRules, state: GameState) -> int:
+    """返回当前现金可购买的最大货车数量。"""
+
+    return int(state.player.cash / rules.vehicles.purchase_price)
+
+
 def repair_truck(rules: GameRules, state: GameState, command: RepairTruck) -> CommandResult:
     """将货车耐久度维修到 100%，并记录维修耗时。"""
 

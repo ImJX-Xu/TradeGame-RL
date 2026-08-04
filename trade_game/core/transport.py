@@ -108,6 +108,22 @@ def reference_sale_origin(catalog: Catalog, product: Product, destination_city: 
     )
 
 
+def travel_cost(catalog: Catalog, rules: GameRules, state: GameState, command: Travel) -> Decimal:
+    """返回一次旅行的确定性现金成本，并校验路线是否可行。"""
+
+    distance = _travel_distance(catalog, rules, state, command)
+    return _travel_cost(rules, state, command, distance)
+
+
+def can_travel(catalog: Catalog, rules: GameRules, state: GameState, command: Travel) -> bool:
+    """判断一条旅行命令在当前状态下是否可执行。"""
+
+    try:
+        return state.player.cash >= travel_cost(catalog, rules, state, command)
+    except RouteNotFound:
+        return False
+
+
 def quote_travel(
     catalog: Catalog, rules: GameRules, state: GameState, command: Travel, rng: Random
 ) -> TravelQuote:
@@ -115,16 +131,7 @@ def quote_travel(
 
     origin = state.player.location
     destination = command.destination
-    if destination not in catalog.cities:
-        raise RouteNotFound(f"未知目标城市：{destination}")
-    if origin == destination:
-        raise RouteNotFound("目标城市不能是当前位置")
-    if command.mode not in catalog.city(origin).modes or command.mode not in catalog.city(destination).modes:
-        raise RouteNotFound("起点或终点不支持所选运输方式")
-    if command.mode is TransportMode.LAND and state.player.truck_durability <= rules.transport.truck_min_durability:
-        raise RouteNotFound(f"货车耐久度不高于 {rules.transport.truck_min_durability}%")
-
-    distance = shortest_distance(catalog, origin, destination, command.mode)
+    distance = _travel_distance(catalog, rules, state, command)
     days = _sample_travel_days(rules, command.mode, distance, rng)
     truck_damage_ratio = Decimal("0")
     truck_durability_loss = Decimal("0")
@@ -143,24 +150,44 @@ def quote_travel(
             ),
         )
         truck_durability_loss = Decimal(distance) * rules.transport.truck_durability_loss_per_km
-        cost = Decimal(distance) * rules.transport.land.cost_per_km * state.player.truck_count
-    else:
-        capacity = state.player.truck_total_capacity
-        load_multiplier = Decimal("1") + Decimal(cargo_quantity(state.player.cargo_lots)) / Decimal(capacity)
-        cost = Decimal(distance) * rules.transport.sea.cost_per_km * load_multiplier
     if command.fast:
         days = max(1, days // rules.transport.fast_time_divisor)
-        cost *= rules.transport.fast_cost_multiplier
     return TravelQuote(
         origin=origin,
         destination=destination,
         mode=command.mode,
         distance_km=distance,
         days=days,
-        cost=money(cost),
+        cost=_travel_cost(rules, state, command, distance),
         truck_damage_ratio=truck_damage_ratio,
         truck_durability_loss=truck_durability_loss,
     )
+
+
+def _travel_distance(catalog: Catalog, rules: GameRules, state: GameState, command: Travel) -> int:
+    origin = state.player.location
+    destination = command.destination
+    if destination not in catalog.cities:
+        raise RouteNotFound(f"未知目标城市：{destination}")
+    if origin == destination:
+        raise RouteNotFound("目标城市不能是当前位置")
+    if command.mode not in catalog.city(origin).modes or command.mode not in catalog.city(destination).modes:
+        raise RouteNotFound("起点或终点不支持所选运输方式")
+    if command.mode is TransportMode.LAND and state.player.truck_durability <= rules.transport.truck_min_durability:
+        raise RouteNotFound(f"货车耐久度不高于 {rules.transport.truck_min_durability}%")
+    return shortest_distance(catalog, origin, destination, command.mode)
+
+
+def _travel_cost(rules: GameRules, state: GameState, command: Travel, distance: int) -> Decimal:
+    if command.mode is TransportMode.LAND:
+        cost = Decimal(distance) * rules.transport.land.cost_per_km * state.player.truck_count
+    else:
+        capacity = state.player.truck_total_capacity
+        load_multiplier = Decimal("1") + Decimal(cargo_quantity(state.player.cargo_lots)) / Decimal(capacity)
+        cost = Decimal(distance) * rules.transport.sea.cost_per_km * load_multiplier
+    if command.fast:
+        cost *= rules.transport.fast_cost_multiplier
+    return money(cost)
 
 
 def travel(
