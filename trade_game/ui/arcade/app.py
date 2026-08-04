@@ -21,7 +21,7 @@ from trade_game.core import (
     NextDay,
     RepairTruck,
     Repay,
-    Route,
+    RouteNotFound,
     Sell,
     TransportMode,
     Travel,
@@ -36,12 +36,13 @@ from trade_game.core import (
     reference_sale_origin,
     remote_sale_distance_premium,
     sale_unit_price,
+    shortest_distance,
     trade_total,
     total_debt,
 )
 
 from .layout import MainLayout, main_layout
-from .map_view import draw_map
+from .map_view import ReachableRoute, draw_map
 from .theme import (
     ACCENT_TEAL,
     APP_BACKGROUND,
@@ -130,6 +131,7 @@ class TradeGameWindow(arcade.Window):
         self._tab_hitboxes: list[TabHitbox] = []
         self._action_hitboxes: list[ActionHitbox] = []
         self._price_cache: dict[tuple[str, str], tuple[Decimal | None, Decimal]] = {}
+        self._route_cache: dict[str, dict[str, tuple[ReachableRoute, ...]]] = {}
         self.event_log: deque[str] = deque(("郑州货站今日开张。",), maxlen=80)
         self.notice = "郑州货站正在等候调度。"
         self.background_color = APP_BACKGROUND
@@ -186,9 +188,9 @@ class TradeGameWindow(arcade.Window):
             default=None,
         )
         if nearest is not None and (nearest[1][0] - x) ** 2 + (nearest[1][1] - y) ** 2 <= 24**2:
-            direct_routes = self._direct_routes(self.session.state.player.location)
-            if nearest[0] != self.session.state.player.location and nearest[0] not in direct_routes:
-                self.notice = f"{nearest[0]} 不在当前直达范围。"
+            reachable_routes = self._reachable_routes(self.session.state.player.location)
+            if nearest[0] != self.session.state.player.location and nearest[0] not in reachable_routes:
+                self.notice = f"当前无法从本站前往 {nearest[0]}。"
                 self.event_log.append(self.notice)
                 return
             self.selected_city = nearest[0]
@@ -309,11 +311,13 @@ class TradeGameWindow(arcade.Window):
 
     def _draw_map(self, layout: MainLayout) -> None:
         draw_raised_panel(layout.map)
+        origin = self.session.state.player.location
         self._city_positions = draw_map(
             self.session.catalog,
             self.session.state,
             layout.map.inset(5),
             selected_city=self.selected_city,
+            reachable_routes=self._reachable_routes(origin),
         )
 
     def _draw_workspace(self, layout: MainLayout) -> None:
@@ -749,15 +753,16 @@ class TradeGameWindow(arcade.Window):
         state = self.session.state
         origin = state.player.location
         destination = self.selected_city or origin
-        grouped = self._direct_routes(origin)
+        grouped = self._reachable_routes(origin)
         if destination == origin:
             arcade.draw_text(f"{origin} 发运路线", bounds.left, bounds.top, TEXT_DARK, 16, font_name="Microsoft YaHei UI", bold=True, anchor_y="top")
-            arcade.draw_text("直达站点", bounds.left, bounds.top - 31, MUTED, 11, font_name="Microsoft YaHei UI", anchor_y="top")
+            arcade.draw_text(f"可达城市  {len(grouped)}", bounds.left, bounds.top - 31, MUTED, 11, font_name="Microsoft YaHei UI", anchor_y="top")
             y = bounds.top - 55
+            row_height = min(28, max(20, int((bounds.height - 58) / max(1, len(grouped)))))
             for city_name, routes in grouped.items():
-                rect = Rect(bounds.left, y - 28, bounds.right, y)
+                rect = Rect(bounds.left, y - row_height + 2, bounds.right, y)
                 self._draw_destination_row(rect, city_name, routes)
-                y -= 32
+                y -= row_height
             return
 
         routes = grouped.get(destination, ())
@@ -787,17 +792,19 @@ class TradeGameWindow(arcade.Window):
             enabled=True,
         )
 
-    def _draw_destination_row(self, rect: Rect, city_name: str, routes: tuple[Route, ...]) -> None:
+    def _draw_destination_row(self, rect: Rect, city_name: str, routes: tuple[ReachableRoute, ...]) -> None:
         selected = city_name == self.selected_city
         arcade.draw_lrbt_rectangle_filled(rect.left, rect.right, rect.bottom, rect.top, (212, 226, 222) if selected else PANEL_INSET)
         if selected:
             arcade.draw_lrbt_rectangle_outline(rect.left, rect.right, rect.bottom, rect.top, ACCENT_TEAL, 2)
         self._action_hitboxes.append(ActionHitbox("select-city", rect, city_name))
-        mode_names = " / ".join("陆运" if route.mode is TransportMode.LAND else "海运" for route in routes)
-        distances = " / ".join(f"{route.distance_km} km" for route in routes)
-        arcade.draw_text(city_name, rect.left + 7, rect.center_y, TEXT_DARK, 13, font_name="Microsoft YaHei UI", bold=selected, anchor_y="center")
-        arcade.draw_text(mode_names, rect.left + 82, rect.center_y, MUTED, 11, font_name="Microsoft YaHei UI", anchor_y="center")
-        arcade.draw_text(distances, rect.right - 7, rect.center_y, TEXT_DARK, 11, font_name="Microsoft YaHei UI", anchor_x="right", anchor_y="center")
+        mode_names = "/".join("陆" if route.mode is TransportMode.LAND else "海" for route in routes)
+        distances = "/".join(f"{route.distance_km:,}" for route in routes)
+        region = self.session.catalog.city(city_name).region
+        arcade.draw_text(city_name, rect.left + 7, rect.center_y, TEXT_DARK, 11, font_name="Microsoft YaHei UI", bold=selected, anchor_y="center")
+        arcade.draw_text(region, rect.left + 61, rect.center_y, MUTED, 10, font_name="Microsoft YaHei UI", anchor_y="center")
+        arcade.draw_text(mode_names, rect.left + 108, rect.center_y, MUTED, 10, font_name="Microsoft YaHei UI", anchor_y="center")
+        arcade.draw_text(f"{distances} km", rect.right - 7, rect.center_y, TEXT_DARK, 10, font_name="Microsoft YaHei UI", anchor_x="right", anchor_y="center")
 
     def _draw_vehicles(self, bounds: Rect) -> None:
         player = self.session.state.player
@@ -1188,6 +1195,7 @@ class TradeGameWindow(arcade.Window):
         self.fast_travel = False
         self.trade_order = None
         self._price_cache.clear()
+        self._route_cache.clear()
         self.event_log.clear()
         self.event_log.append("新的行程从郑州货站开始。")
         self.notice = "郑州货站正在等候调度。"
@@ -1222,16 +1230,33 @@ class TradeGameWindow(arcade.Window):
         self._price_cache[key] = prices
         return prices
 
-    def _direct_routes(self, city_name: str) -> dict[str, tuple[Route, ...]]:
-        """按目录顺序汇总当前城市的直达站点和可用运输方式。"""
+    def _reachable_routes(self, city_name: str) -> dict[str, tuple[ReachableRoute, ...]]:
+        """按区域和目录顺序列出从当前城市可完成的单一运输方式行程。"""
 
-        grouped: dict[str, list[Route]] = {}
-        for route in self.session.catalog.routes:
-            if city_name == route.from_city:
-                grouped.setdefault(route.to_city, []).append(route)
-            elif city_name == route.to_city:
-                grouped.setdefault(route.from_city, []).append(route)
-        return {name: tuple(routes) for name, routes in grouped.items()}
+        catalog = self.session.catalog
+        cached = self._route_cache.get(city_name)
+        if cached is not None:
+            return cached
+        origin = catalog.city(city_name)
+        grouped: dict[str, tuple[ReachableRoute, ...]] = {}
+        regions = tuple(dict.fromkeys(city.region for city in catalog.cities.values()))
+        for region in regions:
+            for destination in catalog.cities.values():
+                if destination.name == city_name or destination.region != region:
+                    continue
+                routes: list[ReachableRoute] = []
+                for mode in (TransportMode.LAND, TransportMode.SEA):
+                    if mode not in origin.modes or mode not in destination.modes:
+                        continue
+                    try:
+                        distance_km = shortest_distance(catalog, city_name, destination.name, mode)
+                    except RouteNotFound:
+                        continue
+                    routes.append(ReachableRoute(mode=mode, distance_km=distance_km))
+                if routes:
+                    grouped[destination.name] = tuple(routes)
+        self._route_cache[city_name] = grouped
+        return grouped
 
 
 def _event_label(name: str) -> str:
