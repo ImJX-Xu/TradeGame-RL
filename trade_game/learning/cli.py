@@ -14,6 +14,7 @@ def run_training(
     updates: int | None,
     rollout_steps: int | None,
     checkpoint_path: Path | None,
+    tensorboard_log_dir: Path | None,
 ) -> None:
     """加载默认或 TOML 配置，执行训练并输出每次更新的主要指标。"""
 
@@ -24,6 +25,8 @@ def run_training(
         config = replace(config, ppo=replace(config.ppo, rollout_steps=rollout_steps))
     if checkpoint_path is not None:
         config = replace(config, checkpoint_path=checkpoint_path)
+    if tensorboard_log_dir is not None:
+        config = replace(config, tensorboard_log_dir=tensorboard_log_dir)
     result = train_ppo(config)
     for snapshot in result.snapshots:
         metrics = snapshot.metrics

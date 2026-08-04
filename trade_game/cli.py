@@ -23,6 +23,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     train.add_argument("--updates", type=int, default=None, help="覆盖配置中的 PPO 更新次数")
     train.add_argument("--rollout-steps", type=int, default=None, help="覆盖每次采样决策数")
     train.add_argument("--checkpoint", type=Path, default=None, help="训练完成后保存检查点")
+    train.add_argument("--tensorboard-logdir", type=Path, default=None, help="TensorBoard 事件目录")
     arguments = parser.parse_args(argv)
     if arguments.command == "play":
         _run_play(parser, arguments)
@@ -60,6 +61,7 @@ def _run_train(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -
         updates=arguments.updates,
         rollout_steps=arguments.rollout_steps,
         checkpoint_path=arguments.checkpoint,
+        tensorboard_log_dir=arguments.tensorboard_logdir,
     )
 
 

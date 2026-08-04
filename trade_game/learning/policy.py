@@ -111,12 +111,50 @@ class PolicyLogits:
 
 
 @dataclass(frozen=True, slots=True)
+class ActionHeadEntropies:
+    """条件动作分支在当前掩码下的逐样本熵。"""
+
+    action: Tensor
+    buy_product: Tensor
+    sell_product: Tensor
+    buy_quantity: Tensor
+    sell_quantity: Tensor
+    travel_city: Tensor
+    travel_transport: Tensor
+    travel_fast: Tensor
+    borrow_quantity: Tensor
+    repay_quantity: Tensor
+    buy_truck_quantity: Tensor
+
+    def as_tensor(self) -> Tensor:
+        """按稳定顺序堆叠为 ``[B, 11]`` 张量，供 rollout 批量记录。"""
+
+        return torch.stack(
+            (
+                self.action,
+                self.buy_product,
+                self.sell_product,
+                self.buy_quantity,
+                self.sell_quantity,
+                self.travel_city,
+                self.travel_transport,
+                self.travel_fast,
+                self.borrow_quantity,
+                self.repay_quantity,
+                self.buy_truck_quantity,
+            ),
+            dim=1,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class PolicySample:
     """一次按掩码采样得到的合法动作及其联合统计量。"""
 
     action: ActionBatch
     log_prob: Tensor
     entropy: Tensor
+    head_entropies: ActionHeadEntropies
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,6 +181,7 @@ class ActorCriticSample:
     action: ActionBatch
     log_prob: Tensor
     entropy: Tensor
+    head_entropies: ActionHeadEntropies
     value: Tensor
 
 
@@ -255,7 +294,8 @@ class ActionPolicy(nn.Module):
         action_distribution = _masked_categorical(logits.action, masks.action)
         action_index = _draw(action_distribution, deterministic=deterministic)
         log_prob = action_distribution.log_prob(action_index)
-        entropy = action_distribution.entropy()
+        action_entropy = action_distribution.entropy()
+        entropy = action_entropy
         batch_size = action_index.size(0)
 
         buy_selected = action_index == _BUY_ACTION_INDEX
@@ -353,7 +393,24 @@ class ActionPolicy(nn.Module):
             quantity_index=quantity_index,
             fast_index=fast_index,
         )
-        return PolicySample(action=action, log_prob=log_prob, entropy=entropy)
+        return PolicySample(
+            action=action,
+            log_prob=log_prob,
+            entropy=entropy,
+            head_entropies=ActionHeadEntropies(
+                action=action_entropy,
+                buy_product=buy_entropy,
+                sell_product=sell_entropy,
+                buy_quantity=buy_quantity_entropy,
+                sell_quantity=sell_quantity_entropy,
+                travel_city=city_entropy,
+                travel_transport=transport_entropy,
+                travel_fast=fast_entropy,
+                borrow_quantity=borrow_entropy,
+                repay_quantity=repay_entropy,
+                buy_truck_quantity=truck_entropy,
+            ),
+        )
 
     def evaluate(
         self,
@@ -508,6 +565,7 @@ class ActorCritic(nn.Module):
             action=sample.action,
             log_prob=sample.log_prob,
             entropy=sample.entropy,
+            head_entropies=sample.head_entropies,
             value=output.value,
         )
 

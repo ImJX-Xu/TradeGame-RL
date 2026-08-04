@@ -23,6 +23,7 @@ class RolloutStep:
     value: float
     reward: float
     terminated: bool
+    final_assets: float | None
     elapsed_days: int
 
 
@@ -37,6 +38,8 @@ class RolloutBatch:
     old_values: Tensor
     rewards: Tensor
     terminated: Tensor
+    final_assets: tuple[float | None, ...]
+    head_entropies: Tensor
     elapsed_days: Tensor
     advantages: Tensor
     returns: Tensor
@@ -51,6 +54,7 @@ class RolloutBuffer:
 
     def __init__(self) -> None:
         self._steps: list[RolloutStep] = []
+        self._head_entropies: list[Tensor] = []
 
     def __len__(self) -> int:
         return len(self._steps)
@@ -65,6 +69,8 @@ class RolloutBuffer:
         value: float,
         reward: float,
         terminated: bool,
+        final_assets: float | None,
+        head_entropies: Tensor,
         elapsed_days: int,
     ) -> None:
         """记录一次由当前策略采样并提交给游戏核心的转移。"""
@@ -78,9 +84,11 @@ class RolloutBuffer:
                 value=value,
                 reward=reward,
                 terminated=terminated,
+                final_assets=final_assets,
                 elapsed_days=elapsed_days,
             )
         )
+        self._head_entropies.append(head_entropies.detach())
 
     def finish(self, *, next_value: float, gamma: float, gae_lambda: float) -> RolloutBatch:
         """使用实际经过天数计算 TD 残差、GAE 优势和回报。"""
@@ -108,6 +116,8 @@ class RolloutBuffer:
             old_values=old_values,
             rewards=torch.tensor([step.reward for step in self._steps], dtype=torch.float32),
             terminated=torch.tensor([step.terminated for step in self._steps], dtype=torch.bool),
+            final_assets=tuple(step.final_assets for step in self._steps),
+            head_entropies=torch.stack(self._head_entropies).to(dtype=torch.float32, device="cpu"),
             elapsed_days=torch.tensor([step.elapsed_days for step in self._steps], dtype=torch.long),
             advantages=advantages_tensor,
             returns=advantages_tensor + old_values,

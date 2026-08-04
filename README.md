@@ -167,3 +167,9 @@ trade-game train --updates 10 --rollout-steps 512 --checkpoint artifacts/ppo.pt
 ```
 
 每隔配置指定的更新次数，训练入口会使用固定种子和确定性条件策略评估挑战回合；`play_policy` 返回每局动作、奖励和资产变化轨迹。
+
+训练入口向 TensorBoard 写入每局最终资产及其近 20 局均值、八类动作占比、条件动作头熵、完整 PPO 优化指标，以及固定种子评估的资产与破产率：
+
+```powershell
+tensorboard --logdir runs/tensorboard
+```

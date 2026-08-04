@@ -31,6 +31,7 @@ class EpisodeTransition:
     action_mask: ActionMask
     reward: float
     terminated: bool
+    final_assets: Decimal | None
     elapsed_days: int
     reward_breakdown: RewardBreakdown
 
@@ -88,6 +89,7 @@ class AgentEnvironment:
             action_mask=build_action_mask(self.session, self.vocabulary),
             reward=reward_breakdown.reward,
             terminated=after.outcome is not None,
+            final_assets=after.outcome.final_assets if after.outcome is not None else None,
             elapsed_days=after.day - before.day,
             reward_breakdown=reward_breakdown,
         )

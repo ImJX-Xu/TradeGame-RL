@@ -100,6 +100,10 @@ class PPOTrainer:
                 value=float(sample.value.item()),
                 reward=transition.reward,
                 terminated=transition.terminated,
+                final_assets=(
+                    float(transition.final_assets) if transition.final_assets is not None else None
+                ),
+                head_entropies=sample.head_entropies.as_tensor()[0],
                 elapsed_days=transition.elapsed_days,
             )
             self.environment_steps += 1

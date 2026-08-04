@@ -15,6 +15,7 @@ from .encoder import StateEncoderConfig
 from .evaluate import EvaluationSummary, evaluate_policy
 from .ppo import PPOConfig, PPOTrainer, PPOUpdateMetrics
 from .policy import ActorCritic
+from .tensorboard import TensorBoardLogger
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,7 @@ class PPOTrainingConfig:
     evaluation_interval: int = 10
     evaluation_seeds: tuple[int, ...] = (101, 103, 107, 109, 113)
     checkpoint_path: Path | None = None
+    tensorboard_log_dir: Path | None = Path("runs/tensorboard")
     ppo: PPOConfig = field(default_factory=PPOConfig)
     encoder: StateEncoderConfig = field(
         default_factory=lambda: StateEncoderConfig(
@@ -66,6 +68,8 @@ def load_training_config(path: Path) -> PPOTrainingConfig:
     encoder_values = dict(document.get("encoder", {}))
     if "checkpoint_path" in training_values:
         training_values["checkpoint_path"] = Path(training_values["checkpoint_path"])
+    if "tensorboard_log_dir" in training_values:
+        training_values["tensorboard_log_dir"] = Path(training_values["tensorboard_log_dir"])
     if "evaluation_seeds" in training_values:
         training_values["evaluation_seeds"] = tuple(training_values["evaluation_seeds"])
     return PPOTrainingConfig(
@@ -93,22 +97,36 @@ def train_ppo(config: PPOTrainingConfig) -> TrainingResult:
         seed=config.seed,
     )
     snapshots: list[TrainingSnapshot] = []
-    for update in range(1, config.updates + 1):
-        rollout = trainer.collect_rollout()
-        metrics = trainer.update(rollout)
-        evaluation = (
-            evaluate_policy(model, seeds=config.evaluation_seeds, device=config.device)
-            if update % config.evaluation_interval == 0 or update == config.updates
-            else None
-        )
-        snapshots.append(
-            TrainingSnapshot(
+    logger = (
+        TensorBoardLogger(config.tensorboard_log_dir, config)
+        if config.tensorboard_log_dir is not None
+        else None
+    )
+    try:
+        for update in range(1, config.updates + 1):
+            rollout = trainer.collect_rollout()
+            metrics = trainer.update(rollout)
+            evaluation = (
+                evaluate_policy(model, seeds=config.evaluation_seeds, device=config.device)
+                if update % config.evaluation_interval == 0 or update == config.updates
+                else None
+            )
+            snapshot = TrainingSnapshot(
                 update=update,
                 environment_steps=trainer.environment_steps,
                 metrics=metrics,
                 evaluation=evaluation,
             )
-        )
+            snapshots.append(snapshot)
+            if logger is not None:
+                logger.log_rollout(rollout, environment_steps=trainer.environment_steps)
+                logger.log_update(metrics, environment_steps=trainer.environment_steps)
+                if evaluation is not None:
+                    logger.log_evaluation(evaluation, environment_steps=trainer.environment_steps)
+                logger.flush()
+    finally:
+        if logger is not None:
+            logger.close()
     result = TrainingResult(model=model, snapshots=tuple(snapshots))
     if config.checkpoint_path is not None:
         save_checkpoint(config.checkpoint_path, result, config, trainer)

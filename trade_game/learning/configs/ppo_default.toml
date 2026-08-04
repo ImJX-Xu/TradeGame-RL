@@ -4,6 +4,7 @@ seed = 7
 device = "cpu"
 evaluation_interval = 10
 evaluation_seeds = [101, 103, 107, 109, 113]
+tensorboard_log_dir = "runs/tensorboard"
 
 [ppo]
 gamma = 0.995
