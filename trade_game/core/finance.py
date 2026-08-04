@@ -44,7 +44,7 @@ def available_credit(catalog: Catalog, rules: GameRules, state: GameState) -> De
 
 
 def borrow(catalog: Catalog, rules: GameRules, state: GameState, command: Borrow) -> CommandResult:
-    """在银行城市新增一笔贷款，并立即增加现金。"""
+    """在银行城市新增一笔贷款，增加现金并占用一个经营日。"""
 
     if not catalog.city(state.player.location).has_bank:
         return _reject(command, state, RejectionCode.NOT_ALLOWED, "当前城市没有银行")
@@ -57,7 +57,7 @@ def borrow(catalog: Catalog, rules: GameRules, state: GameState, command: Borrow
 
     loan = Loan(principal=amount, start_day=state.day)
     player = replace(state.player, cash=state.player.cash + amount)
-    next_state = replace(state, player=player, loans=(*state.loans, loan))
+    next_state = replace(state, player=player, loans=(*state.loans, loan), day=state.day + 1)
     return CommandResult.succeed(
         command,
         next_state,
@@ -66,7 +66,7 @@ def borrow(catalog: Catalog, rules: GameRules, state: GameState, command: Borrow
 
 
 def repay(catalog: Catalog, rules: GameRules, state: GameState, command: Repay) -> CommandResult:
-    """在银行城市按借入顺序偿还利息后再偿还本金。"""
+    """按借入顺序偿还利息和本金，并占用一个经营日。"""
 
     if not catalog.city(state.player.location).has_bank:
         return _reject(command, state, RejectionCode.NOT_ALLOWED, "当前城市没有银行")
@@ -96,7 +96,7 @@ def repay(catalog: Catalog, rules: GameRules, state: GameState, command: Repay) 
             )
 
     player = replace(state.player, cash=state.player.cash - amount)
-    next_state = replace(state, player=player, loans=tuple(updated_loans))
+    next_state = replace(state, player=player, loans=tuple(updated_loans), day=state.day + 1)
     return CommandResult.succeed(
         command,
         next_state,

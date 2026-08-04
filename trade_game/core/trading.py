@@ -15,7 +15,7 @@ from .transport import remote_sale_distance_multiplier
 
 
 def buy(catalog: Catalog, rules: GameRules, state: GameState, command: Buy) -> CommandResult:
-    """执行采购；失败时返回原状态且不产生副作用。"""
+    """执行采购并占用一个经营日；失败时返回原状态且不产生副作用。"""
 
     if command.product_id not in catalog.products:
         return _reject(command, state, RejectionCode.UNKNOWN_ENTITY, "商品不存在")
@@ -41,7 +41,7 @@ def buy(catalog: Catalog, rules: GameRules, state: GameState, command: Buy) -> C
         ),
     )
     player = replace(state.player, cash=state.player.cash - total, cargo_lots=cargo_lots)
-    next_state = replace(state, player=player)
+    next_state = replace(state, player=player, day=state.day + 1)
     return CommandResult.succeed(
         command,
         next_state,
@@ -58,7 +58,7 @@ def buy(catalog: Catalog, rules: GameRules, state: GameState, command: Buy) -> C
 
 
 def sell(catalog: Catalog, rules: GameRules, state: GameState, command: Sell) -> CommandResult:
-    """执行精确数量的售卖；库存不足时拒绝而非部分成交。"""
+    """执行精确数量的售卖并占用一个经营日；库存不足时拒绝而非部分成交。"""
 
     if command.product_id not in catalog.products:
         return _reject(command, state, RejectionCode.UNKNOWN_ENTITY, "商品不存在")
@@ -81,7 +81,7 @@ def sell(catalog: Catalog, rules: GameRules, state: GameState, command: Sell) ->
         state.player.cargo_lots, command.product_id, command.quantity
     )
     player = replace(state.player, cash=state.player.cash + total, cargo_lots=cargo_lots)
-    next_state = replace(state, player=player)
+    next_state = replace(state, player=player, day=state.day + 1)
     return CommandResult.succeed(
         command,
         next_state,

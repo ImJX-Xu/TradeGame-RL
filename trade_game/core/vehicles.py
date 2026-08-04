@@ -38,7 +38,7 @@ def repair_truck(rules: GameRules, state: GameState, command: RepairTruck) -> Co
 
 
 def buy_truck(rules: GameRules, state: GameState, command: BuyTruck) -> CommandResult:
-    """购买货车；购车即时生效且不推进游戏日期。"""
+    """购买货车并占用一个经营日。"""
 
     cost = money(rules.vehicles.purchase_price * command.quantity)
     if state.player.cash < cost:
@@ -49,7 +49,7 @@ def buy_truck(rules: GameRules, state: GameState, command: BuyTruck) -> CommandR
         truck_count=state.player.truck_count + command.quantity,
         truck_total_capacity=state.player.truck_total_capacity + rules.vehicles.capacity_per_vehicle * command.quantity,
     )
-    next_state = replace(state, player=player)
+    next_state = replace(state, player=player, day=state.day + 1)
     return CommandResult.succeed(
         command,
         next_state,
