@@ -144,6 +144,8 @@ action_tensor = sample.action.as_tensor()  # [batch_size, 6]
 
 训练时使用 `model.evaluate_actions(state_batch, mask_batch, actions)` 重算同一批轨迹动作的联合 `log_prob`、条件熵和全局价值 `V(s)`，供后续 PPO 目标函数使用。
 
+完整结构图见 [智能体结构文档](docs/architecture/README.md)：其中分别给出状态编码器、Actor-Critic 条件动作网络和原生 PPO 训练流程。
+
 ## 训练回合
 
 `AgentEnvironment` 默认创建 150 天挑战回合。`reset` 返回初始观测和动作掩码；`step` 只接受 `ActionHead`，并始终通过动作解码器和 `GameSession.dispatch` 执行规则。

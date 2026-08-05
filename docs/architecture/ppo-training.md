@@ -1,0 +1,36 @@
+# 原生 PPO 训练流程
+
+每个决策步骤的折扣系数为 `gamma ** elapsed_days`，因此不同游戏操作跨越的天数会进入 GAE 与回报计算。当前默认配置每次收集 512 个决策步骤，再进行 4 轮、每轮 64 条样本的小批量更新。
+
+```mermaid
+flowchart TB
+    classDef runtime fill:#EAF8F2,stroke:#16805C,stroke-width:1.5px,color:#173B2E
+    classDef storage fill:#EAF1FF,stroke:#2563EB,stroke-width:1.5px,color:#172554
+    classDef optimize fill:#F4EDFF,stroke:#7C3AED,stroke-width:1.5px,color:#2E1065
+    classDef monitor fill:#FFF1E8,stroke:#EA580C,stroke-width:1.5px,color:#431407
+
+    environment["AgentEnvironment<br/>GameSession.dispatch(action)<br/>返回 observation、reward、elapsed_days、terminated"]:::runtime
+    model["ActorCritic<br/>StateEncoder + ActionPolicy + Value Head"]:::runtime
+    observation["AgentObservation -> ObservationBatch<br/>下一状态的结构化观测张量"]:::runtime
+    mask["ActionMask<br/>当前状态的合法动作集合"]:::runtime
+    sample["sample：按掩码采样 ActionBatch<br/>记录 old log_prob、old value"]:::runtime
+    action["ActionBatch -> ActionHead<br/>固定六元组动作协议"]:::runtime
+    buffer["RolloutBuffer<br/>保存 observation、ActionMask、ActionHead<br/>old log_prob、old value、条件头熵<br/>以及 reward、elapsed_days、终局资产"]:::storage
+    gae["finish：按实际过日数折扣<br/>GAE 与 returns；gamma ** elapsed_days"]:::storage
+    minibatch["4 个 epoch；minibatch=64<br/>evaluate_actions 重算 log_prob、entropy、V(s)"]:::optimize
+    objective["PPO 目标<br/>策略裁剪 + 价值裁剪 - 熵正则"]:::optimize
+    update["Adam：learning_rate=3e-4<br/>梯度范数裁剪；target KL 提前停止"]:::optimize
+    tensorboard["TensorBoard<br/>损失、KL、裁剪率、梯度范数、动作占比、条件头熵、每局最终资产、固定种子评估"]:::monitor
+
+    observation --> model
+    model --> sample
+    mask --> sample
+    sample --> action --> environment
+    environment -->|下一观测| observation
+    environment -->|新掩码| mask
+    environment --> buffer
+    action --> buffer
+    buffer --> gae --> minibatch --> objective --> update -->|更新参数| model
+    buffer -. rollout 与 episode 指标 .-> tensorboard
+    objective -. 损失与健康指标 .-> tensorboard
+```

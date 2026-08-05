@@ -1,0 +1,74 @@
+# 智能体状态编码器
+
+下图对应当前 `ppo_default.toml` 的网络尺寸：`embedding_dim=16`、`entity_dim=64`、`state_dim=128`、`hidden_dim=128`。`B` 表示 batch size，`L` 表示当前 batch 中补齐后的货物批次数。图中的 `a -> b -> c` 是 `_FeatureEncoder` 的输入、隐藏层和输出维度；虚线表示将已有实体 token 加到对象 token，不再重复经过 MLP。
+
+```mermaid
+flowchart TB
+    classDef source fill:#EAF8F2,stroke:#16805C,stroke-width:1.5px,color:#173B2E
+    classDef encoder fill:#EAF1FF,stroke:#2563EB,stroke-width:1.5px,color:#172554
+    classDef token fill:#EEF2FF,stroke:#4F46E5,stroke-width:1.5px,color:#1E1B4B
+    classDef pool fill:#F4EDFF,stroke:#7C3AED,stroke-width:1.5px,color:#2E1065
+    classDef output fill:#FFF1E8,stroke:#EA580C,stroke-width:1.5px,color:#431407
+
+    subgraph directory["1. 实体目录与经营状态"]
+        direction LR
+        city_input["城市 ID、区域 ID、4 项属性<br/>[B,14]；[B,14]；[B,14,4]"]:::source
+        city_encoder["城市/区域 Embedding：16 + 16<br/>拼接属性：36 -> 128 -> 64"]:::encoder
+        city_tokens["city_tokens [B,14,64]"]:::token
+        product_input["商品 ID、类别 ID、5 项属性<br/>[B,18]；[B,18]；[B,18,5]"]:::source
+        product_encoder["商品/类别 Embedding：16 + 16<br/>拼接属性：37 -> 128 -> 64"]:::encoder
+        product_tokens["product_tokens [B,18,64]"]:::token
+        global_input["11 项全局特征、当前城市 ID<br/>[B,11]；[B]"]:::source
+        global_encoder["提取当前城市 token 并拼接<br/>75 -> 128 -> 64"]:::encoder
+        global_context["global_context [B,64]"]:::token
+        city_input --> city_encoder --> city_tokens
+        product_input --> product_encoder --> product_tokens
+        global_input --> global_encoder --> global_context
+        city_tokens -->|按当前城市 ID 提取| global_encoder
+    end
+
+    subgraph collections["2. 三类动态对象：加和组成对象 token"]
+        direction LR
+        market_input["四日售价、历史有效位、可采购位<br/>[B,14,18,4]；[B,4]；[B,14,18]"]:::source
+        market_encoder["9 项数值特征<br/>9 -> 128 -> 64"]:::encoder
+        market_tokens["market_tokens<br/>城市 token + 商品 token + 行情编码<br/>[B,14,18,64]"]:::token
+        route_input["6 项路线属性、可达位<br/>[B,14,2,6]；[B,14,2]"]:::source
+        route_encoder["路线：7 -> 128 -> 64<br/>运输方式 Embedding：16 -> 128 -> 64"]:::encoder
+        route_tokens["route_tokens<br/>城市 token + 运输方式 token + 路线编码<br/>[B,14,2,64]"]:::token
+        cargo_input["货物商品 ID、产地 ID、6 项属性、有效位<br/>[B,L]；[B,L]；[B,L,6]；[B,L]"]:::source
+        cargo_encoder["货物批次：6 -> 128 -> 64"]:::encoder
+        cargo_tokens["cargo_tokens<br/>商品 token + 产地城市 token + 货物编码<br/>[B,L,64]"]:::token
+        market_input --> market_encoder --> market_tokens
+        route_input --> route_encoder --> route_tokens
+        cargo_input --> cargo_encoder --> cargo_tokens
+    end
+    city_tokens -. 城市 token .-> market_tokens
+    product_tokens -. 商品 token .-> market_tokens
+    city_tokens -. 城市 token .-> route_tokens
+    city_tokens -. 产地城市 token .-> cargo_tokens
+    product_tokens -. 商品 token .-> cargo_tokens
+
+    query["Query：global_context [B,64]"]:::token
+    global_context --> query
+
+    subgraph attention["3. TargetAttentionPool：依据经营状态汇聚对象集合"]
+        direction LR
+        market_pool["市场：252 个 token<br/>无掩码<br/>market_context [B,64]"]:::pool
+        route_pool["路线：28 个 token<br/>route_available 掩码<br/>route_context [B,64]"]:::pool
+        cargo_pool["货物：L 个 token<br/>cargo_valid 掩码<br/>cargo_context [B,64]"]:::pool
+    end
+    query --> market_pool
+    market_tokens -->|展平| market_pool
+    query --> route_pool
+    route_tokens -->|展平| route_pool
+    query --> cargo_pool
+    cargo_tokens --> cargo_pool
+
+    fusion["拼接 global、market、route、cargo：4 x 64 = 256<br/>FeatureEncoder：256 -> 128 -> 128"]:::encoder
+    state["StateEncoding<br/>state [B,128]<br/>同时保留 market_tokens、route_tokens<br/>与三组注意力权重"]:::output
+    global_context --> fusion
+    market_pool --> fusion
+    route_pool --> fusion
+    cargo_pool --> fusion
+    fusion --> state
+```

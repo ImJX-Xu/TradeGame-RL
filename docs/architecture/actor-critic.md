@@ -1,0 +1,58 @@
+# Actor-Critic 条件动作网络
+
+`ActorCritic` 共享一个 `StateEncoder`。策略分支会计算所有条件 logits；只有 `sample` 与 `evaluate_actions` 根据 `ActionMaskBatch` 选择和评估当前命令所需的动作头。`B` 表示 batch size。
+
+```mermaid
+flowchart TB
+    classDef input fill:#EAF8F2,stroke:#16805C,stroke-width:1.5px,color:#173B2E
+    classDef network fill:#FFF7E6,stroke:#D97706,stroke-width:1.5px,color:#451A03
+    classDef decision fill:#F4EDFF,stroke:#7C3AED,stroke-width:1.5px,color:#2E1065
+    classDef output fill:#FFF1E8,stroke:#EA580C,stroke-width:1.5px,color:#431407
+
+    state_input["state [B,128]"]:::input
+    market_input["market_tokens [B,14,18,64]"]:::input
+    route_input["route_tokens [B,14,2,64]"]:::input
+    mask["ActionMaskBatch<br/>只在采样和重放时屏蔽非法类别"]:::input
+
+    subgraph actor_critic["ActorCritic：共享 StateEncoder 的策略与价值网络"]
+        direction LR
+        value["Value Head<br/>128 -> 128 -> 1<br/>V(s) [B]"]:::network
+        action_type["动作类型头<br/>128 -> 128 -> 8"]:::network
+        trade["交易分支<br/>提取当前城市市场 token [B,18,64]<br/>两组商品 Query-Score：买入/卖出 [B,18]<br/>state + 商品 token：两组数量 logits [B,18,21]"]:::network
+        travel["旅行分支<br/>路线城市 token = mean(route_tokens, 运输方式)<br/>城市 logits [B,14]；运输方式 logits [B,14,2]<br/>state + 路线 token：加急 logits [B,14,2,2]"]:::network
+        finance["融资分支<br/>借款/还款/购车动作 Embedding：3 x 64<br/>state + 动作 embedding：3 组数量 logits [B,21]"]:::network
+        fixed_actions["维修车辆、推进日期<br/>无条件参数头"]:::network
+    end
+    state_input --> value
+    state_input --> action_type
+    market_input --> trade
+    state_input --> trade
+    route_input --> travel
+    state_input --> travel
+    state_input --> finance
+    action_type --> fixed_actions
+
+    subgraph decision["条件采样、联合概率与动作解码"]
+        direction LR
+        select_action["Masked Categorical<br/>主动作与后续条件头均读取对应掩码"]:::decision
+        trade_path["BUY/SELL<br/>商品 -> 数量"]:::decision
+        travel_path["TRAVEL<br/>城市 -> 运输方式 -> 加急"]:::decision
+        finance_path["BORROW/REPAY/BUY_TRUCK<br/>数量"]:::decision
+        no_param_path["REPAIR_TRUCK/NEXT_DAY<br/>无参数"]:::decision
+        action_batch["ActionBatch [B,6]<br/>action, product, city, transport, quantity, fast"]:::output
+        joint["联合 log_prob / entropy<br/>按 ActionBatch 只累加当前动作经过的头"]:::output
+        decoder["单个 ActionBatch 样本 -> ActionHead<br/>ActionDecoder -> 核心 Command"]:::output
+        select_action --> trade_path --> action_batch
+        select_action --> travel_path --> action_batch
+        select_action --> finance_path --> action_batch
+        select_action --> no_param_path --> action_batch
+        action_batch --> joint
+        action_batch --> decoder
+    end
+    mask --> select_action
+    action_type --> select_action
+    trade --> trade_path
+    travel --> travel_path
+    finance --> finance_path
+    fixed_actions --> no_param_path
+```
