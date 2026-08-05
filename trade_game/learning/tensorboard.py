@@ -99,6 +99,9 @@ class TensorBoardLogger:
             "ppo/minibatches": metrics.minibatches,
             "ppo/epochs": metrics.epochs,
             "ppo/early_stopped": float(metrics.early_stopped),
+            "schedule/learning_rate": metrics.learning_rate,
+            "schedule/entropy_coefficient": metrics.entropy_coefficient,
+            "schedule/target_kl": metrics.target_kl,
         }
         for name, value in values.items():
             self.writer.add_scalar(name, value, environment_steps)

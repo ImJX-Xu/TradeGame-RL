@@ -27,12 +27,15 @@ class PPOConfig:
     ppo_epochs: int = 4
     minibatch_size: int = 64
     learning_rate: float = 3e-4
+    final_learning_rate: float | None = None
     clip_range: float = 0.2
     value_clip_range: float = 0.2
     value_coefficient: float = 0.5
     entropy_coefficient: float = 0.01
+    final_entropy_coefficient: float | None = None
     max_grad_norm: float = 0.5
     target_kl: float = 0.03
+    initial_target_kl: float | None = None
     normalize_advantages: bool = True
 
 
@@ -50,6 +53,9 @@ class PPOUpdateMetrics:
     minibatches: int
     epochs: int
     early_stopped: bool
+    learning_rate: float
+    entropy_coefficient: float
+    target_kl: float
 
 
 class PPOTrainer:
@@ -79,12 +85,40 @@ class PPOTrainer:
         self._action_masks: list[ActionMask | None] = [None] * len(self.environments)
         self._episode_indices = [0] * len(self.environments)
         self.environment_steps = 0
+        self._learning_rate = config.learning_rate
+        self._entropy_coefficient = config.entropy_coefficient
+        self._initial_target_kl = (
+            config.target_kl if config.initial_target_kl is None else config.initial_target_kl
+        )
+        self._target_kl = self._initial_target_kl
 
     @property
     def environment_count(self) -> int:
         """返回本训练器批量采样的独立游戏环境数量。"""
 
         return len(self.environments)
+
+    def set_training_progress(self, progress: float) -> None:
+        """按训练进度平滑调整学习率、熵系数和 KL 阈值。"""
+
+        bounded_progress = min(max(progress, 0.0), 1.0)
+        self._learning_rate = _interpolate(
+            self.config.learning_rate,
+            self.config.final_learning_rate,
+            bounded_progress,
+        )
+        self._entropy_coefficient = _interpolate(
+            self.config.entropy_coefficient,
+            self.config.final_entropy_coefficient,
+            bounded_progress,
+        )
+        self._target_kl = _interpolate(
+            self._initial_target_kl,
+            self.config.target_kl,
+            bounded_progress,
+        )
+        for group in self.optimizer.param_groups:
+            group["lr"] = self._learning_rate
 
     def collect_rollout(self) -> RolloutBatch:
         """用当前策略采集固定数量的决策转移并计算 GAE。"""
@@ -191,7 +225,7 @@ class PPOTrainer:
                 kls.append(metrics[4])
                 clip_fractions.append(metrics[5])
                 grad_norms.append(metrics[6])
-                if metrics[4] > self.config.target_kl:
+                if metrics[4] > self._target_kl:
                     early_stopped = True
                     break
             if early_stopped:
@@ -207,6 +241,9 @@ class PPOTrainer:
             minibatches=len(policy_losses),
             epochs=completed_epochs,
             early_stopped=early_stopped,
+            learning_rate=self._learning_rate,
+            entropy_coefficient=self._entropy_coefficient,
+            target_kl=self._target_kl,
         )
 
     def _update_minibatch(
@@ -242,7 +279,7 @@ class PPOTrainer:
         total_loss = (
             policy_loss
             + self.config.value_coefficient * value_loss
-            - self.config.entropy_coefficient * entropy
+            - self._entropy_coefficient * entropy
         )
         self.optimizer.zero_grad(set_to_none=True)
         total_loss.backward()
@@ -304,6 +341,11 @@ class PPOTrainer:
 
 def _action_head(values: Tensor) -> ActionHead:
     return ActionHead(*(int(value) for value in values.detach().cpu().tolist()))
+
+
+def _interpolate(start: float, end: float | None, progress: float) -> float:
+    target = start if end is None else end
+    return start + (target - start) * progress
 
 
 def _mean(values: list[float]) -> float:

@@ -108,6 +108,7 @@ def train_ppo(config: PPOTrainingConfig) -> TrainingResult:
     )
     try:
         for update in range(1, config.updates + 1):
+            trainer.set_training_progress((update - 1) / max(config.updates - 1, 1))
             rollout = trainer.collect_rollout()
             metrics = trainer.update(rollout)
             evaluation = (
