@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+from collections import OrderedDict
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from math import ceil, exp, sqrt
@@ -48,6 +49,13 @@ class TravelEstimate:
     standard_cost: Decimal
     fast_cost: Decimal
     truck_durability_loss: Decimal
+
+
+_ROUTE_GRAPH_CACHE: OrderedDict[
+    tuple[int, TransportMode | None],
+    tuple[Catalog, dict[str, tuple[tuple[str, int], ...]]],
+] = OrderedDict()
+_ROUTE_GRAPH_CACHE_LIMIT = 64
 
 
 def shortest_distance(
@@ -282,13 +290,24 @@ def travel(
 
 
 def _route_graph(catalog: Catalog, mode: TransportMode | None) -> dict[str, tuple[tuple[str, int], ...]]:
+    key = (id(catalog), mode)
+    cached = _ROUTE_GRAPH_CACHE.get(key)
+    if cached is not None and cached[0] is catalog:
+        _ROUTE_GRAPH_CACHE.move_to_end(key)
+        return cached[1]
+
     graph: dict[str, list[tuple[str, int]]] = {}
     for route in catalog.routes:
         if mode is not None and route.mode is not mode:
             continue
         graph.setdefault(route.from_city, []).append((route.to_city, route.distance_km))
         graph.setdefault(route.to_city, []).append((route.from_city, route.distance_km))
-    return {city_name: tuple(edges) for city_name, edges in graph.items()}
+    frozen_graph = {city_name: tuple(edges) for city_name, edges in graph.items()}
+    _ROUTE_GRAPH_CACHE[key] = (catalog, frozen_graph)
+    _ROUTE_GRAPH_CACHE.move_to_end(key)
+    if len(_ROUTE_GRAPH_CACHE) > _ROUTE_GRAPH_CACHE_LIMIT:
+        _ROUTE_GRAPH_CACHE.popitem(last=False)
+    return frozen_graph
 
 
 def _sample_travel_days(rules: GameRules, mode: TransportMode, distance_km: int, rng: Random) -> int:

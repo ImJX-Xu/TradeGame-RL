@@ -47,7 +47,6 @@ class ActionDecoder:
     def decode(self, session: GameSession, action: ActionHead) -> Command:
         """将分类索引转换为核心 ``Command``，不直接执行命令。"""
 
-        self.vocabulary.validate_catalog(session.catalog)
         command_type = self.vocabulary.validate(action)
         if command_type is CommandType.BUY:
             return self._decode_buy(session, action)

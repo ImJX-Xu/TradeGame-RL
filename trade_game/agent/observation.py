@@ -144,7 +144,6 @@ class AgentObservation:
 def build_observation(session: GameSession, vocabulary: ActionVocabulary) -> AgentObservation:
     """从当前会话生成一次纯数据观测，不读取市场趋势或事件内部变量。"""
 
-    vocabulary.validate_catalog(session.catalog)
     catalog = session.catalog
     rules = session.rules
     state = session.state

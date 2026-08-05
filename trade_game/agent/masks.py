@@ -54,7 +54,6 @@ class ActionMask:
 def build_action_mask(session: GameSession, vocabulary: ActionVocabulary) -> ActionMask:
     """按当前会话和固定词表生成一次完整的合法动作快照。"""
 
-    vocabulary.validate_catalog(session.catalog)
     empty_quantity = _empty_mask(len(QuantityBin))
     empty_product = _empty_mask(len(vocabulary.product_ids))
     empty_city = _empty_mask(len(vocabulary.city_names))

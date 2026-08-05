@@ -25,6 +25,7 @@ class RolloutStep:
     terminated: bool
     final_assets: float | None
     elapsed_days: int
+    environment_step: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,12 +42,43 @@ class RolloutBatch:
     final_assets: tuple[float | None, ...]
     head_entropies: Tensor
     elapsed_days: Tensor
+    environment_steps: Tensor
     advantages: Tensor
     returns: Tensor
 
     @property
     def size(self) -> int:
         return len(self.observations)
+
+    @classmethod
+    def concatenate(cls, batches: tuple["RolloutBatch", ...]) -> "RolloutBatch":
+        """合并多个独立环境的完整轨迹，保留各轨迹内部的时间顺序。"""
+
+        if not batches:
+            raise ValueError("不能合并空轨迹集合")
+        return cls(
+            observations=tuple(
+                observation for batch in batches for observation in batch.observations
+            ),
+            action_masks=tuple(action_mask for batch in batches for action_mask in batch.action_masks),
+            actions=ActionBatch.from_tensor(
+                torch.cat(tuple(batch.actions.as_tensor() for batch in batches), dim=0)
+            ),
+            old_log_probs=torch.cat(tuple(batch.old_log_probs for batch in batches), dim=0),
+            old_values=torch.cat(tuple(batch.old_values for batch in batches), dim=0),
+            rewards=torch.cat(tuple(batch.rewards for batch in batches), dim=0),
+            terminated=torch.cat(tuple(batch.terminated for batch in batches), dim=0),
+            final_assets=tuple(
+                final_assets for batch in batches for final_assets in batch.final_assets
+            ),
+            head_entropies=torch.cat(tuple(batch.head_entropies for batch in batches), dim=0),
+            elapsed_days=torch.cat(tuple(batch.elapsed_days for batch in batches), dim=0),
+            environment_steps=torch.cat(
+                tuple(batch.environment_steps for batch in batches), dim=0
+            ),
+            advantages=torch.cat(tuple(batch.advantages for batch in batches), dim=0),
+            returns=torch.cat(tuple(batch.returns for batch in batches), dim=0),
+        )
 
 
 class RolloutBuffer:
@@ -72,6 +104,7 @@ class RolloutBuffer:
         final_assets: float | None,
         head_entropies: Tensor,
         elapsed_days: int,
+        environment_step: int,
     ) -> None:
         """记录一次由当前策略采样并提交给游戏核心的转移。"""
 
@@ -86,6 +119,7 @@ class RolloutBuffer:
                 terminated=terminated,
                 final_assets=final_assets,
                 elapsed_days=elapsed_days,
+                environment_step=environment_step,
             )
         )
         self._head_entropies.append(head_entropies.detach())
@@ -119,6 +153,9 @@ class RolloutBuffer:
             final_assets=tuple(step.final_assets for step in self._steps),
             head_entropies=torch.stack(self._head_entropies).to(dtype=torch.float32, device="cpu"),
             elapsed_days=torch.tensor([step.elapsed_days for step in self._steps], dtype=torch.long),
+            environment_steps=torch.tensor(
+                [step.environment_step for step in self._steps], dtype=torch.long
+            ),
             advantages=advantages_tensor,
             returns=advantages_tensor + old_values,
         )

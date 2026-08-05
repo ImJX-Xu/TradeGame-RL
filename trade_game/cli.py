@@ -21,7 +21,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     train = subcommands.add_parser("train", help="使用原生 PyTorch PPO 训练智能体")
     train.add_argument("--config", type=Path, default=None, help="训练 TOML 配置路径")
     train.add_argument("--updates", type=int, default=None, help="覆盖配置中的 PPO 更新次数")
-    train.add_argument("--rollout-steps", type=int, default=None, help="覆盖每次采样决策数")
+    train.add_argument(
+        "--rollout-steps",
+        type=int,
+        default=None,
+        help="覆盖每个训练环境的单次采样决策数",
+    )
     train.add_argument("--checkpoint", type=Path, default=None, help="训练完成后保存检查点")
     train.add_argument("--tensorboard-logdir", type=Path, default=None, help="TensorBoard 事件目录")
     arguments = parser.parse_args(argv)

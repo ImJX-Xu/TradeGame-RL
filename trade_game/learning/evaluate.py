@@ -53,6 +53,7 @@ def play_policy(
     *,
     seed: int,
     device: torch.device | str = "cpu",
+    capture_trace: bool = True,
 ) -> PolicyEpisode:
     """以确定性条件策略游玩一局挑战模式，并保留完整动作轨迹。"""
 
@@ -80,14 +81,15 @@ def play_policy(
                 raise RuntimeError("评估回合尚未初始化")
             day = environment.session.state.day
             transition = environment.step(action)
-            trace.append(
-                PolicyTraceStep(
-                    day=day,
-                    action=action,
-                    reward=transition.reward,
-                    assets_after=transition.reward_breakdown.assets_after,
+            if capture_trace:
+                trace.append(
+                    PolicyTraceStep(
+                        day=day,
+                        action=action,
+                        reward=transition.reward,
+                        assets_after=transition.reward_breakdown.assets_after,
+                    )
                 )
-            )
             total_reward += transition.reward
             total_days += transition.elapsed_days
             observation = transition.observation
@@ -114,10 +116,14 @@ def evaluate_policy(
     *,
     seeds: tuple[int, ...],
     device: torch.device | str = "cpu",
+    capture_trace: bool = True,
 ) -> EvaluationSummary:
     """在固定种子集合上执行确定性挑战评估。"""
 
-    episodes = tuple(play_policy(model, seed=seed, device=device) for seed in seeds)
+    episodes = tuple(
+        play_policy(model, seed=seed, device=device, capture_trace=capture_trace)
+        for seed in seeds
+    )
     final_assets = tuple(sorted(episode.final_assets for episode in episodes))
     count = len(episodes)
     if not count:

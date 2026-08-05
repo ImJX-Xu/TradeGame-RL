@@ -25,8 +25,10 @@ class PPOTrainingConfig:
     updates: int = 100
     seed: int = 7
     device: str = "cpu"
+    environment_count: int = 1
     evaluation_interval: int = 10
     evaluation_seeds: tuple[int, ...] = (101, 103, 107, 109, 113)
+    tensorboard_flush_interval: int = 10
     checkpoint_path: Path | None = None
     tensorboard_log_dir: Path | None = Path("runs/tensorboard")
     ppo: PPOConfig = field(default_factory=PPOConfig)
@@ -82,16 +84,18 @@ def load_training_config(path: Path) -> PPOTrainingConfig:
 def train_ppo(config: PPOTrainingConfig) -> TrainingResult:
     """执行配置指定次数的采样、PPO 更新和周期性确定性评估。"""
 
+    if config.environment_count <= 0:
+        raise ValueError("训练环境数量必须为正")
     torch.manual_seed(config.seed)
-    environment = AgentEnvironment()
-    start = environment.reset(seed=config.seed)
+    environments = tuple(AgentEnvironment() for _ in range(config.environment_count))
+    start = environments[0].reset(seed=config.seed)
     model = ActorCritic(
         ObservationSpec.from_observation(start.observation),
         encoder_config=config.encoder,
     )
     trainer = PPOTrainer(
         model,
-        environment,
+        environments,
         config.ppo,
         device=config.device,
         seed=config.seed,
@@ -107,7 +111,12 @@ def train_ppo(config: PPOTrainingConfig) -> TrainingResult:
             rollout = trainer.collect_rollout()
             metrics = trainer.update(rollout)
             evaluation = (
-                evaluate_policy(model, seeds=config.evaluation_seeds, device=config.device)
+                evaluate_policy(
+                    model,
+                    seeds=config.evaluation_seeds,
+                    device=config.device,
+                    capture_trace=False,
+                )
                 if update % config.evaluation_interval == 0 or update == config.updates
                 else None
             )
@@ -123,7 +132,13 @@ def train_ppo(config: PPOTrainingConfig) -> TrainingResult:
                 logger.log_update(metrics, environment_steps=trainer.environment_steps)
                 if evaluation is not None:
                     logger.log_evaluation(evaluation, environment_steps=trainer.environment_steps)
-                logger.flush()
+                if (
+                    update % config.tensorboard_flush_interval == 0
+                    or evaluation is not None
+                    or update == config.updates
+                ):
+                    logger.flush()
+            del rollout
     finally:
         if logger is not None:
             logger.close()

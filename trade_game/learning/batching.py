@@ -247,6 +247,30 @@ class ObservationBatch:
             cargo_valid=self.cargo_valid.to(device, non_blocking=non_blocking),
         )
 
+    def index_select(self, indices: Tensor) -> "ObservationBatch":
+        """浠庡凡鎵归噺鍖栫殑瑙傛祴涓鍙栦竴涓皬鎵规銆?"""
+
+        return replace(
+            self,
+            global_features=self.global_features.index_select(0, indices),
+            current_city_ids=self.current_city_ids.index_select(0, indices),
+            city_ids=self.city_ids.index_select(0, indices),
+            city_region_ids=self.city_region_ids.index_select(0, indices),
+            city_features=self.city_features.index_select(0, indices),
+            product_ids=self.product_ids.index_select(0, indices),
+            product_category_ids=self.product_category_ids.index_select(0, indices),
+            product_features=self.product_features.index_select(0, indices),
+            market_sale_history=self.market_sale_history.index_select(0, indices),
+            market_can_purchase=self.market_can_purchase.index_select(0, indices),
+            market_history_valid=self.market_history_valid.index_select(0, indices),
+            route_available=self.route_available.index_select(0, indices),
+            route_features=self.route_features.index_select(0, indices),
+            cargo_product_ids=self.cargo_product_ids.index_select(0, indices),
+            cargo_origin_city_ids=self.cargo_origin_city_ids.index_select(0, indices),
+            cargo_features=self.cargo_features.index_select(0, indices),
+            cargo_valid=self.cargo_valid.index_select(0, indices),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class ActionMaskBatch:
@@ -307,6 +331,24 @@ class ActionMaskBatch:
             borrow_quantity=self.borrow_quantity.to(device, non_blocking=non_blocking),
             repay_quantity=self.repay_quantity.to(device, non_blocking=non_blocking),
             buy_truck_quantity=self.buy_truck_quantity.to(device, non_blocking=non_blocking),
+        )
+
+    def index_select(self, indices: Tensor) -> "ActionMaskBatch":
+        """浠庡凡鎵归噺鍖栫殑鎺╃爜涓鍙栦竴涓皬鎵规銆?"""
+
+        return replace(
+            self,
+            action=self.action.index_select(0, indices),
+            buy_product=self.buy_product.index_select(0, indices),
+            sell_product=self.sell_product.index_select(0, indices),
+            buy_quantity=self.buy_quantity.index_select(0, indices),
+            sell_quantity=self.sell_quantity.index_select(0, indices),
+            travel_city=self.travel_city.index_select(0, indices),
+            travel_transport=self.travel_transport.index_select(0, indices),
+            travel_fast=self.travel_fast.index_select(0, indices),
+            borrow_quantity=self.borrow_quantity.index_select(0, indices),
+            repay_quantity=self.repay_quantity.index_select(0, indices),
+            buy_truck_quantity=self.buy_truck_quantity.index_select(0, indices),
         )
 
 

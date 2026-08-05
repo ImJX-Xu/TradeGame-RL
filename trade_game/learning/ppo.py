@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Sequence
 
 import torch
 from torch import Tensor
@@ -52,70 +53,90 @@ class PPOUpdateMetrics:
 
 
 class PPOTrainer:
-    """串联游戏采样、GAE 和 PPO 更新的单环境训练器。"""
+    """协调多个独立游戏环境的采样、GAE 与 PPO 更新。"""
 
     def __init__(
         self,
         model: ActorCritic,
-        environment: AgentEnvironment,
+        environment: AgentEnvironment | Sequence[AgentEnvironment],
         config: PPOConfig,
         *,
         device: torch.device | str = "cpu",
         seed: int | None = None,
     ) -> None:
         self.model = model.to(device)
-        self.environment = environment
+        self.environments = (
+            (environment,) if isinstance(environment, AgentEnvironment) else tuple(environment)
+        )
+        if not self.environments:
+            raise ValueError("至少需要一个训练环境")
+        self.environment = self.environments[0]
         self.config = config
         self.device = torch.device(device)
         self.seed = seed
         self.optimizer = Adam(self.model.parameters(), lr=config.learning_rate)
-        self._observation: AgentObservation | None = None
-        self._action_mask: ActionMask | None = None
-        self._episode_index = 0
+        self._observations: list[AgentObservation | None] = [None] * len(self.environments)
+        self._action_masks: list[ActionMask | None] = [None] * len(self.environments)
+        self._episode_indices = [0] * len(self.environments)
         self.environment_steps = 0
+
+    @property
+    def environment_count(self) -> int:
+        """返回本训练器批量采样的独立游戏环境数量。"""
+
+        return len(self.environments)
 
     def collect_rollout(self) -> RolloutBatch:
         """用当前策略采集固定数量的决策转移并计算 GAE。"""
 
-        self._ensure_episode()
-        buffer = RolloutBuffer()
+        self._ensure_episodes()
+        buffers = tuple(RolloutBuffer() for _ in self.environments)
         self.model.eval()
         for _ in range(self.config.rollout_steps):
-            observation, action_mask = self._current_state()
+            observations, action_masks = self._current_states()
             batch = ObservationBatch.from_observations(
-                (observation,),
+                observations,
                 spec=self.model.encoder.spec,
                 device=self.device,
             )
-            masks = ActionMaskBatch.from_masks((action_mask,), device=self.device)
+            masks = ActionMaskBatch.from_masks(action_masks, device=self.device)
             with torch.no_grad():
                 sample = self.model.sample(batch, masks)
-            action = _action_head(sample.action)
-            transition = self.environment.step(action)
-            buffer.append(
-                observation=observation,
-                action_mask=action_mask,
-                action=action,
-                log_prob=float(sample.log_prob.item()),
-                value=float(sample.value.item()),
-                reward=transition.reward,
-                terminated=transition.terminated,
-                final_assets=(
-                    float(transition.final_assets) if transition.final_assets is not None else None
-                ),
-                head_entropies=sample.head_entropies.as_tensor()[0],
-                elapsed_days=transition.elapsed_days,
+            actions = sample.action.as_tensor()
+            head_entropies = sample.head_entropies.as_tensor()
+            for index, environment in enumerate(self.environments):
+                action = _action_head(actions[index])
+                transition = environment.step(action)
+                self.environment_steps += 1
+                buffers[index].append(
+                    observation=observations[index],
+                    action_mask=action_masks[index],
+                    action=action,
+                    log_prob=float(sample.log_prob[index].item()),
+                    value=float(sample.value[index].item()),
+                    reward=transition.reward,
+                    terminated=transition.terminated,
+                    final_assets=(
+                        float(transition.final_assets) if transition.final_assets is not None else None
+                    ),
+                    head_entropies=head_entropies[index],
+                    elapsed_days=transition.elapsed_days,
+                    environment_step=self.environment_steps,
+                )
+                self._observations[index] = transition.observation
+                self._action_masks[index] = transition.action_mask
+                if transition.terminated:
+                    self._start_episode(index)
+        next_values = self._current_values()
+        return RolloutBatch.concatenate(
+            tuple(
+                buffer.finish(
+                    next_value=next_values[index],
+                    gamma=self.config.gamma,
+                    gae_lambda=self.config.gae_lambda,
+                )
+                for index, buffer in enumerate(buffers)
             )
-            self.environment_steps += 1
-            self._observation = transition.observation
-            self._action_mask = transition.action_mask
-            if transition.terminated:
-                self._start_episode()
-        next_value = self._current_value()
-        return buffer.finish(
-            next_value=next_value,
-            gamma=self.config.gamma,
-            gae_lambda=self.config.gae_lambda,
         )
 
     def update(self, rollout: RolloutBatch) -> PPOUpdateMetrics:
@@ -125,6 +146,20 @@ class PPOTrainer:
         advantages = rollout.advantages.to(self.device)
         if self.config.normalize_advantages:
             advantages = (advantages - advantages.mean()) / (advantages.std(unbiased=False) + 1e-8)
+
+        observations = ObservationBatch.from_observations(
+            rollout.observations,
+            spec=self.model.encoder.spec,
+            device=self.device,
+        )
+        action_masks = ActionMaskBatch.from_masks(
+            rollout.action_masks,
+            device=self.device,
+        )
+        actions = rollout.actions.to(self.device)
+        old_log_probs = rollout.old_log_probs.to(self.device)
+        old_values = rollout.old_values.to(self.device)
+        returns = rollout.returns.to(self.device)
 
         policy_losses: list[float] = []
         value_losses: list[float] = []
@@ -137,13 +172,17 @@ class PPOTrainer:
         early_stopped = False
         for _ in range(self.config.ppo_epochs):
             completed_epochs += 1
-            order = torch.randperm(rollout.size)
+            order = torch.randperm(rollout.size, device=self.device)
             for start in range(0, rollout.size, self.config.minibatch_size):
                 indices = order[start : start + self.config.minibatch_size]
                 metrics = self._update_minibatch(
-                    rollout,
-                    indices,
-                    advantages[indices.to(self.device)],
+                    observations.index_select(indices),
+                    action_masks.index_select(indices),
+                    actions.index_select(indices),
+                    old_log_probs.index_select(0, indices),
+                    old_values.index_select(0, indices),
+                    returns.index_select(0, indices),
+                    advantages.index_select(0, indices),
                 )
                 policy_losses.append(metrics[0])
                 value_losses.append(metrics[1])
@@ -172,25 +211,15 @@ class PPOTrainer:
 
     def _update_minibatch(
         self,
-        rollout: RolloutBatch,
-        indices: Tensor,
+        observations: ObservationBatch,
+        action_masks: ActionMaskBatch,
+        actions: ActionBatch,
+        old_log_probs: Tensor,
+        old_values: Tensor,
+        returns: Tensor,
         advantages: Tensor,
     ) -> tuple[float, float, float, float, float, float, float]:
-        index_list = indices.tolist()
-        batch = ObservationBatch.from_observations(
-            tuple(rollout.observations[index] for index in index_list),
-            spec=self.model.encoder.spec,
-            device=self.device,
-        )
-        masks = ActionMaskBatch.from_masks(
-            tuple(rollout.action_masks[index] for index in index_list),
-            device=self.device,
-        )
-        actions = ActionBatch.from_tensor(rollout.actions.as_tensor()[indices].to(self.device))
-        old_log_probs = rollout.old_log_probs[indices].to(self.device)
-        old_values = rollout.old_values[indices].to(self.device)
-        returns = rollout.returns[indices].to(self.device)
-        evaluation = self.model.evaluate_actions(batch, masks, actions)
+        evaluation = self.model.evaluate_actions(observations, action_masks, actions)
         log_ratio = evaluation.log_prob - old_log_probs
         ratio = log_ratio.exp()
         unclipped_objective = ratio * advantages
@@ -232,35 +261,49 @@ class PPOTrainer:
             float(grad_norm),
         )
 
-    def _ensure_episode(self) -> None:
-        if self._observation is None or self._action_mask is None:
-            self._start_episode()
+    def _ensure_episodes(self) -> None:
+        for index, (observation, action_mask) in enumerate(
+            zip(self._observations, self._action_masks, strict=True)
+        ):
+            if observation is None or action_mask is None:
+                self._start_episode(index)
 
-    def _start_episode(self) -> None:
-        episode_seed = None if self.seed is None else self.seed + self._episode_index
-        start = self.environment.reset(seed=episode_seed)
-        self._observation = start.observation
-        self._action_mask = start.action_mask
-        self._episode_index += 1
+    def _start_episode(self, index: int) -> None:
+        episode_seed = (
+            None
+            if self.seed is None
+            else self.seed + index * 1_000_003 + self._episode_indices[index]
+        )
+        start = self.environments[index].reset(seed=episode_seed)
+        self._observations[index] = start.observation
+        self._action_masks[index] = start.action_mask
+        self._episode_indices[index] += 1
 
-    def _current_state(self) -> tuple[AgentObservation, ActionMask]:
-        if self._observation is None or self._action_mask is None:
+    def _current_states(self) -> tuple[tuple[AgentObservation, ...], tuple[ActionMask, ...]]:
+        observations = tuple(self._observations)
+        action_masks = tuple(self._action_masks)
+        if any(observation is None for observation in observations) or any(
+            action_mask is None for action_mask in action_masks
+        ):
             raise RuntimeError("训练回合尚未初始化")
-        return self._observation, self._action_mask
+        return (
+            tuple(observation for observation in observations if observation is not None),
+            tuple(action_mask for action_mask in action_masks if action_mask is not None),
+        )
 
-    def _current_value(self) -> float:
-        observation, _ = self._current_state()
+    def _current_values(self) -> tuple[float, ...]:
+        observations, _ = self._current_states()
         batch = ObservationBatch.from_observations(
-            (observation,),
+            observations,
             spec=self.model.encoder.spec,
             device=self.device,
         )
         with torch.no_grad():
-            return float(self.model(batch).value.item())
+            return tuple(float(value.item()) for value in self.model(batch).value)
 
 
-def _action_head(actions: ActionBatch) -> ActionHead:
-    return ActionHead(*(int(value) for value in actions.as_tensor()[0]))
+def _action_head(values: Tensor) -> ActionHead:
+    return ActionHead(*(int(value) for value in values.detach().cpu().tolist()))
 
 
 def _mean(values: list[float]) -> float:

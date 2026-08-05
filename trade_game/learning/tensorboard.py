@@ -73,11 +73,10 @@ class TensorBoardLogger:
                 mean_entropy,
                 environment_steps,
             )
-        rollout_start = environment_steps - rollout.size
         for index, final_assets in enumerate(rollout.final_assets):
             if final_assets is None:
                 continue
-            terminal_step = rollout_start + index + 1
+            terminal_step = int(rollout.environment_steps[index])
             self._recent_final_assets.append(final_assets)
             self.writer.add_scalar("episode/final_assets", final_assets, terminal_step)
             self.writer.add_scalar(
@@ -139,8 +138,10 @@ def _config_values(config: PPOTrainingConfig) -> Mapping[str, Any]:
         "updates": config.updates,
         "seed": config.seed,
         "device": config.device,
+        "environment_count": config.environment_count,
         "evaluation_interval": config.evaluation_interval,
         "evaluation_seeds": config.evaluation_seeds,
+        "tensorboard_flush_interval": config.tensorboard_flush_interval,
         "checkpoint_path": str(config.checkpoint_path) if config.checkpoint_path else None,
         "tensorboard_log_dir": str(config.tensorboard_log_dir)
         if config.tensorboard_log_dir

@@ -79,6 +79,19 @@ class ActionBatch:
             dim=1,
         )
 
+    def index_select(self, indices: Tensor) -> "ActionBatch":
+        """浠庡凡鎵归噺鍖栫殑鍔ㄤ綔涓鍙栦竴涓皬鎵规銆?"""
+
+        return replace(
+            self,
+            action_index=self.action_index.index_select(0, indices),
+            product_index=self.product_index.index_select(0, indices),
+            city_index=self.city_index.index_select(0, indices),
+            transport_index=self.transport_index.index_select(0, indices),
+            quantity_index=self.quantity_index.index_select(0, indices),
+            fast_index=self.fast_index.index_select(0, indices),
+        )
+
     def to(self, device: torch.device | str, *, non_blocking: bool = False) -> "ActionBatch":
         """返回迁移到指定设备后的新动作批次。"""
 
