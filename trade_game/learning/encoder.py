@@ -77,7 +77,7 @@ class StateEncoder(nn.Module):
             self.config.dropout,
         )
         self.market_encoder = _FeatureEncoder(
-            2 * len(spec.market_history_offsets) + 1,
+            2 * len(spec.market_history_offsets) + 2,
             entity_dim,
             hidden_dim,
             self.config.dropout,
@@ -190,6 +190,7 @@ class StateEncoder(nn.Module):
                 batch.market_sale_history,
                 history_valid.to(dtype=batch.market_sale_history.dtype),
                 batch.market_can_purchase.unsqueeze(-1).to(dtype=batch.market_sale_history.dtype),
+                batch.market_purchase_cooldown.unsqueeze(-1),
             ),
             dim=-1,
         )

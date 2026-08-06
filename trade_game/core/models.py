@@ -212,6 +212,7 @@ class MarketState:
     product_trends: Mapping[str, Decimal]
     local_spreads: Mapping[CityProductKey, Decimal]
     price_adjustment_history: Mapping[CityProductKey, tuple[Decimal, ...]]
+    purchase_available_days: Mapping[CityProductKey, int]
     active_events: tuple[MarketEvent, ...]
 
 

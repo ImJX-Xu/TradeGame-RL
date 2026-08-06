@@ -1,5 +1,5 @@
 schema_version = 1
-balance_version = "1.2.0"
+balance_version = "1.3.0"
 
 [game]
 initial_cash = "1000"
@@ -22,6 +22,7 @@ max_active_events = 4
 event_ramp_days = 2
 shortage_probability = "0.55"
 regional_scope_probability = "0.40"
+purchase_cooldown_days = 14
 
 [transport]
 fast_cost_multiplier = "3"

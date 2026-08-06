@@ -4,12 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from decimal import Decimal
+from types import MappingProxyType
 
 from .catalog import Catalog
 from .commands import Buy, Sell
 from .inventory import add_cargo, cargo_quantity, free_capacity, remove_cargo_fifo
 from .models import CargoLot, GameState
-from .price_functions import money, purchase_unit_price, sale_unit_price, trade_total
+from .price_functions import (
+    money,
+    purchase_cooldown_remaining,
+    purchase_unit_price,
+    sale_unit_price,
+    trade_total,
+)
 from .results import CommandRejection, CommandResult, GameEvent, RejectionCode
 from .rules import GameRules
 from .transport import remote_sale_distance_premium
@@ -33,6 +40,8 @@ def maximum_purchase_quantity(
     city_name = state.player.location
     if city_name not in product.origins:
         return 0
+    if purchase_cooldown_remaining(state, city_name, product_id) > 0:
+        return 0
     capacity = free_capacity(state.player.cargo_lots, state.player.truck_total_capacity)
     if capacity == 0:
         return 0
@@ -49,6 +58,9 @@ def buy(catalog: Catalog, rules: GameRules, state: GameState, command: Buy) -> C
     city_name = state.player.location
     if city_name not in product.origins:
         return _reject(command, state, RejectionCode.NOT_ALLOWED, "当前城市不是该商品产地")
+    cooldown = purchase_cooldown_remaining(state, city_name, command.product_id)
+    if cooldown > 0:
+        return _reject(command, state, RejectionCode.NOT_ALLOWED, f"货源恢复中，还需 {cooldown} 天")
     if command.quantity > free_capacity(state.player.cargo_lots, state.player.truck_total_capacity):
         return _reject(command, state, RejectionCode.INSUFFICIENT_CAPACITY, "货车剩余容量不足")
 
@@ -68,6 +80,17 @@ def buy(catalog: Catalog, rules: GameRules, state: GameState, command: Buy) -> C
     )
     player = replace(state.player, cash=state.player.cash - total, cargo_lots=cargo_lots)
     next_state = replace(state, player=player, day=state.day + 1)
+    purchase_available_days = dict(state.market.purchase_available_days)
+    purchase_available_days[(city_name, command.product_id)] = (
+        next_state.day + rules.market.purchase_cooldown_days
+    )
+    next_state = replace(
+        next_state,
+        market=replace(
+            state.market,
+            purchase_available_days=MappingProxyType(purchase_available_days),
+        ),
+    )
     return CommandResult.succeed(
         command,
         next_state,

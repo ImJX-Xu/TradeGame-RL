@@ -31,6 +31,8 @@ from trade_game.core import (
     free_capacity,
     market_bulletins,
     money,
+    maximum_purchase_quantity,
+    purchase_cooldown_remaining,
     purchase_unit_price,
     quote_sale,
     reference_sale_price_history,
@@ -419,7 +421,11 @@ class TradeGameWindow(arcade.Window):
 
         if not product_ids:
             empty_title = "没有可采购商品" if is_buy else "没有可出售货物"
-            empty_detail = "现金或车辆运力不足。" if is_buy else "当前车载数量为 0。"
+            empty_detail = (
+                "货源正在恢复，或现金与车辆运力不足。"
+                if is_buy
+                else "当前车载数量为 0。"
+            )
             empty_y = bounds.top - 128
             arcade.draw_text(empty_title, bounds.center_x, empty_y, MUTED, 17, font_name="Microsoft YaHei UI", bold=True, anchor_x="center", anchor_y="top")
             arcade.draw_text(empty_detail, bounds.center_x, empty_y - 30, MUTED, 12, font_name="Microsoft YaHei UI", anchor_x="center", anchor_y="top")
@@ -543,10 +549,11 @@ class TradeGameWindow(arcade.Window):
         product = self.session.catalog.product(product_id)
         if mode == "buy":
             purchase, _sale = self._market_prices(product_id, state.player.location)
-            assert purchase is not None
-            capacity = free_capacity(state.player.cargo_lots, state.player.truck_total_capacity)
-            affordable = int(state.player.cash / purchase)
-            return purchase, min(capacity, affordable)
+            if purchase is None:
+                return Decimal("0"), 0
+            return purchase, maximum_purchase_quantity(
+                self.session.catalog, self.session.rules, state, product_id
+            )
         quantity = cargo_quantity(state.player.cargo_lots, product.id)
         if quantity == 0:
             return Decimal("0"), 0
@@ -713,11 +720,19 @@ class TradeGameWindow(arcade.Window):
             history = self._price_history(product.id, city_name=self.market_city)
             change_text, change_color = _price_change(history, "sell")
             price_range = f"{min(history):,.2f} / {max(history):,.2f}"
+            cooldown = (
+                purchase_cooldown_remaining(self.session.state, self.market_city, product.id)
+                if self.market_city in product.origins
+                else 0
+            )
+            purchase_text = f"恢复 {cooldown} 天" if cooldown else (
+                f"{purchase:,.2f}" if purchase is not None else "-"
+            )
             arcade.draw_lrbt_rectangle_filled(row.left, row.right, row.bottom, row.top, PANEL_INSET)
             arcade.draw_line(row.left, row.bottom, row.right, row.bottom, MUTED, 1)
             arcade.draw_text(product.name, row.left + row.width * 0.02, row.center_y, TEXT_DARK, 12, font_name="Microsoft YaHei UI", bold=True, anchor_y="center")
             arcade.draw_text("、".join(product.origins), row.left + row.width * 0.22, row.center_y, MUTED, 11, font_name="Microsoft YaHei UI", anchor_y="center")
-            arcade.draw_text(f"{purchase:,.2f}" if purchase is not None else "-", row.left + row.width * 0.48, row.center_y, ACCENT_TEAL if purchase is not None else MUTED, 12, font_name="Microsoft YaHei UI", anchor_x="right", anchor_y="center")
+            arcade.draw_text(purchase_text, row.left + row.width * 0.48, row.center_y, ACCENT_TEAL if purchase is not None else MUTED, 12, font_name="Microsoft YaHei UI", anchor_x="right", anchor_y="center")
             arcade.draw_text(f"{sale:,.2f}", row.left + row.width * 0.61, row.center_y, TEXT_DARK, 12, font_name="Microsoft YaHei UI", anchor_x="right", anchor_y="center")
             arcade.draw_text(price_range, row.left + row.width * 0.83, row.center_y, TEXT_DARK, 11, font_name="Microsoft YaHei UI", anchor_x="right", anchor_y="center")
             arcade.draw_text(change_text, row.right - 16, row.center_y, change_color, 11, font_name="Microsoft YaHei UI", anchor_x="right", anchor_y="center")
@@ -1191,6 +1206,7 @@ class TradeGameWindow(arcade.Window):
         purchase = (
             purchase_unit_price(self.session.catalog, self.session.rules, self.session.state, product_id, city_name)
             if city_name in product.origins
+            and purchase_cooldown_remaining(self.session.state, city_name, product_id) == 0
             else None
         )
         origin_city = reference_sale_origin(self.session.catalog, product, city_name)

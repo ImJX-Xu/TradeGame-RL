@@ -27,6 +27,7 @@ from trade_game.core import (
     reference_sale_origin,
     remote_sale_distance_premium,
     purchase_unit_price,
+    purchase_cooldown_remaining,
     sale_unit_price,
     total_debt,
 )
@@ -166,7 +167,12 @@ class TerminalGame:
             product = self.session.catalog.product(product_id)
             purchase = "-"
             if city_name in product.origins:
-                purchase = f"{purchase_unit_price(self.session.catalog, self.session.rules, self.session.state, product_id, city_name):,.2f}"
+                cooldown = purchase_cooldown_remaining(self.session.state, city_name, product_id)
+                purchase = (
+                    f"冷却{cooldown}天"
+                    if cooldown
+                    else f"{purchase_unit_price(self.session.catalog, self.session.rules, self.session.state, product_id, city_name):,.2f}"
+                )
             reference_origin = reference_sale_origin(self.session.catalog, product, city_name)
             sale = sale_unit_price(
                 self.session.catalog,

@@ -46,6 +46,7 @@ class MarketRules:
     event_ramp_days: int
     shortage_probability: Decimal
     regional_scope_probability: Decimal
+    purchase_cooldown_days: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,6 +232,7 @@ def _parse_market(raw: Mapping[str, Any]) -> MarketRules:
             "event_ramp_days",
             "shortage_probability",
             "regional_scope_probability",
+            "purchase_cooldown_days",
         },
         "market",
     )
@@ -266,6 +268,9 @@ def _parse_market(raw: Mapping[str, Any]) -> MarketRules:
             "market.regional_scope_probability",
             minimum=Decimal("0"),
             maximum=Decimal("1"),
+        ),
+        purchase_cooldown_days=_integer(
+            raw["purchase_cooldown_days"], "market.purchase_cooldown_days", minimum=0
         ),
     )
 

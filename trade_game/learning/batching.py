@@ -119,6 +119,7 @@ class ObservationBatch:
     product_features: Tensor
     market_sale_history: Tensor
     market_can_purchase: Tensor
+    market_purchase_cooldown: Tensor
     market_history_valid: Tensor
     route_available: Tensor
     route_features: Tensor
@@ -189,6 +190,16 @@ class ObservationBatch:
                 ],
                 dtype=torch.bool,
             ),
+            market_purchase_cooldown=torch.tensor(
+                [
+                    [
+                        [quote.purchase_cooldown_fraction for quote in market_row]
+                        for market_row in observation.market_quotes
+                    ]
+                    for observation in items
+                ],
+                dtype=torch.float32,
+            ),
             market_history_valid=torch.tensor(
                 [observation.market_history_valid for observation in items], dtype=torch.bool
             ),
@@ -238,6 +249,7 @@ class ObservationBatch:
             product_features=self.product_features.to(device, non_blocking=non_blocking),
             market_sale_history=self.market_sale_history.to(device, non_blocking=non_blocking),
             market_can_purchase=self.market_can_purchase.to(device, non_blocking=non_blocking),
+            market_purchase_cooldown=self.market_purchase_cooldown.to(device, non_blocking=non_blocking),
             market_history_valid=self.market_history_valid.to(device, non_blocking=non_blocking),
             route_available=self.route_available.to(device, non_blocking=non_blocking),
             route_features=self.route_features.to(device, non_blocking=non_blocking),
@@ -262,6 +274,7 @@ class ObservationBatch:
             product_features=self.product_features.index_select(0, indices),
             market_sale_history=self.market_sale_history.index_select(0, indices),
             market_can_purchase=self.market_can_purchase.index_select(0, indices),
+            market_purchase_cooldown=self.market_purchase_cooldown.index_select(0, indices),
             market_history_valid=self.market_history_valid.index_select(0, indices),
             route_available=self.route_available.index_select(0, indices),
             route_features=self.route_features.index_select(0, indices),

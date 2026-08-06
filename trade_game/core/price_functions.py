@@ -30,6 +30,13 @@ def price_adjustment(state: GameState, city_name: str, product_id: str) -> Decim
     return state.market.current_price_adjustments[(city_name, product_id)]
 
 
+def purchase_cooldown_remaining(state: GameState, city_name: str, product_id: str) -> int:
+    """返回城市商品对距离下一次采购可用日的剩余天数。"""
+
+    available_day = state.market.purchase_available_days[(city_name, product_id)]
+    return max(0, available_day - state.day)
+
+
 def purchase_unit_price(
     catalog: Catalog, rules: GameRules, state: GameState, product_id: str, city_name: str
 ) -> Decimal:

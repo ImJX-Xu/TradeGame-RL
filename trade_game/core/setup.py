@@ -25,6 +25,9 @@ def create_initial_state(
         }
     )
     price_history = MappingProxyType({key: (value,) for key, value in zero_adjustments.items()})
+    purchase_available_days = MappingProxyType(
+        {key: initial.initial_day for key in zero_adjustments}
+    )
     product_trends = MappingProxyType({product_id: Decimal("0") for product_id in catalog.products})
     return GameState(
         player=PlayerState(
@@ -43,6 +46,7 @@ def create_initial_state(
             product_trends=product_trends,
             local_spreads=zero_adjustments,
             price_adjustment_history=price_history,
+            purchase_available_days=purchase_available_days,
             active_events=(),
         ),
         loans=(),

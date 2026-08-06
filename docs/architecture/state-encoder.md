@@ -29,8 +29,8 @@ flowchart TB
 
     subgraph collections["2. 三类动态对象：加和组成对象 token"]
         direction LR
-        market_input["四日售价、历史有效位、可采购位<br/>[B,14,18,4]；[B,4]；[B,14,18]"]:::source
-        market_encoder["9 项数值特征<br/>9 -> 128 -> 64"]:::encoder
+        market_input["四日售价、历史有效位、可采购位、采购恢复比例<br/>[B,14,18,4]；[B,4]；[B,14,18]；[B,14,18]"]:::source
+        market_encoder["10 项数值特征<br/>10 -> 128 -> 64"]:::encoder
         market_tokens["market_tokens<br/>城市 token + 商品 token + 行情编码<br/>[B,14,18,64]"]:::token
         route_input["6 项路线属性、可达位<br/>[B,14,2,6]；[B,14,2]"]:::source
         route_encoder["路线：7 -> 128 -> 64<br/>运输方式 Embedding：16 -> 128 -> 64"]:::encoder

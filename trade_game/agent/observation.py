@@ -17,6 +17,7 @@ from trade_game.core import (
     daily_labor_cost,
     estimate_travel,
     free_capacity,
+    purchase_cooldown_remaining,
     reference_sale_price_history,
     remote_sale_distance_premium,
     sale_unit_price,
@@ -100,12 +101,13 @@ class ProductObservation:
 
 @dataclass(frozen=True, slots=True)
 class MarketQuoteObservation:
-    """一个城市商品对在 D-6、D-4、D-2、D 的公开参考售价。"""
+    """一个城市商品对的四日行情与采购恢复状态。"""
 
     city_index: int
     product_index: int
     sale_log_history: tuple[float, ...]
     can_purchase: bool
+    purchase_cooldown_fraction: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,7 +251,14 @@ def _market_quotes(
                     city_index=city_index,
                     product_index=product_index,
                     sale_log_history=sale_history,
-                    can_purchase=city_name in product.origins,
+                    can_purchase=(
+                        city_name in product.origins
+                        and purchase_cooldown_remaining(session.state, city_name, product_id) == 0
+                    ),
+                    purchase_cooldown_fraction=(
+                        purchase_cooldown_remaining(session.state, city_name, product_id)
+                        / max(1, session.rules.market.purchase_cooldown_days)
+                    ),
                 )
             )
         rows.append(tuple(row))

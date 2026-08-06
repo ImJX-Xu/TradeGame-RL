@@ -208,6 +208,7 @@ def _refresh_market(
         product_trends=MappingProxyType(product_trends),
         local_spreads=MappingProxyType(local_spreads),
         price_adjustment_history=MappingProxyType(history),
+        purchase_available_days=market.purchase_available_days,
         active_events=active_events,
     )
 
