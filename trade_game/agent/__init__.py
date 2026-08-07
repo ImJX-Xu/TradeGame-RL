@@ -7,7 +7,7 @@ from .actions import (
     ActionVocabulary,
     QuantityBin,
 )
-from .decoder import ActionDecodeError, ActionDecoder, decode_action
+from .decoder import ActionDecodeError, ActionDecoder, decode_action, encode_command
 from .environment import AgentEnvironment, EpisodeStart, EpisodeTransition
 from .masks import ActionMask, build_action_mask
 from .observation import (
@@ -60,5 +60,6 @@ __all__ = [
     "RewardV1Config",
     "build_observation",
     "decode_action",
+    "encode_command",
     "build_action_mask",
 ]

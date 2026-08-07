@@ -29,12 +29,44 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     train.add_argument("--checkpoint", type=Path, default=None, help="训练完成后保存检查点")
     train.add_argument("--tensorboard-logdir", type=Path, default=None, help="TensorBoard 事件目录")
+    dagger_ppo = subcommands.add_parser(
+        "dagger-ppo",
+        help="用贪心教师、DAgger 和行为克隆初始化 PPO",
+    )
+    dagger_ppo.add_argument("--config", type=Path, default=None, help="DAgger-PPO TOML 配置路径")
+    dagger_ppo.add_argument("--updates", type=int, default=None, help="覆盖 PPO 更新次数")
+    dagger_ppo.add_argument(
+        "--rollout-steps",
+        type=int,
+        default=None,
+        help="覆盖每个训练环境的单次采样决策数",
+    )
+    dagger_ppo.add_argument("--expert-episodes", type=int, default=None, help="覆盖初始贪心教师局数")
+    dagger_ppo.add_argument("--dagger-rounds", type=int, default=None, help="覆盖 DAgger 轮数")
+    dagger_ppo.add_argument("--checkpoint", type=Path, default=None, help="训练完成后保存检查点")
+    dagger_ppo.add_argument(
+        "--tensorboard-logdir",
+        type=Path,
+        default=None,
+        help="覆盖 TensorBoard 事件目录",
+    )
+    greedy = subcommands.add_parser("greedy", help="运行市场感知的贪心经营基准")
+    greedy.add_argument("--seed", dest="seeds", type=int, action="append", default=None)
+    greedy.add_argument("--episodes", type=int, default=16, help="未指定 --seed 时运行的局数")
+    greedy.add_argument("--start-seed", type=int, default=101, help="未指定 --seed 时的起始种子")
+    greedy.add_argument("--trace", action="store_true", help="输出每局完整命令轨迹")
     arguments = parser.parse_args(argv)
     if arguments.command == "play":
         _run_play(parser, arguments)
         return 0
     if arguments.command == "train":
         _run_train(parser, arguments)
+        return 0
+    if arguments.command == "dagger-ppo":
+        _run_dagger_ppo(parser, arguments)
+        return 0
+    if arguments.command == "greedy":
+        _run_greedy(arguments)
         return 0
     raise RuntimeError(f"未处理的子命令：{arguments.command}")
 
@@ -68,6 +100,61 @@ def _run_train(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -
         checkpoint_path=arguments.checkpoint,
         tensorboard_log_dir=arguments.tensorboard_logdir,
     )
+
+
+def _run_dagger_ppo(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> None:
+    try:
+        from trade_game.learning.cli import run_dagger_ppo
+    except ModuleNotFoundError as error:
+        if error.name in {"torch", "tensorboard"}:
+            parser.error("DAgger-PPO 训练需要安装可选依赖：pip install -e \".[learning]\"")
+        raise
+    run_dagger_ppo(
+        config_path=arguments.config,
+        updates=arguments.updates,
+        rollout_steps=arguments.rollout_steps,
+        expert_episodes=arguments.expert_episodes,
+        dagger_rounds=arguments.dagger_rounds,
+        checkpoint_path=arguments.checkpoint,
+        tensorboard_log_dir=arguments.tensorboard_logdir,
+    )
+
+
+def _run_greedy(arguments: argparse.Namespace) -> None:
+    """执行不依赖学习框架的贪心经营基准，并以终端表格汇总结果。"""
+
+    from collections import Counter
+
+    from trade_game.analysis import evaluate_greedy
+
+    seeds = (
+        tuple(arguments.seeds)
+        if arguments.seeds is not None
+        else tuple(range(arguments.start_seed, arguments.start_seed + arguments.episodes))
+    )
+    evaluation = evaluate_greedy(seeds=seeds, capture_trace=arguments.trace)
+    print(
+        "贪心基准："
+        f"平均资产={evaluation.mean_final_assets} "
+        f"中位数={evaluation.median_final_assets} "
+        f"最低={evaluation.minimum_final_assets} "
+        f"最高={evaluation.maximum_final_assets} "
+        f"破产率={evaluation.bankruptcy_rate:.2%}"
+    )
+    counts: Counter[str] = Counter()
+    for episode in evaluation.episodes:
+        counts.update(dict(episode.command_counts))
+        print(
+            f"seed={episode.seed} assets={episode.final_assets} days={episode.elapsed_days} "
+            f"trucks={episode.truck_count} end={episode.end_reason.value}"
+        )
+        if arguments.trace:
+            for step in episode.trace:
+                print(
+                    f"  day={step.day} city={step.location} "
+                    f"command={step.command!r} assets={step.assets_after}"
+                )
+    print("操作汇总：" + " ".join(f"{name}={count}" for name, count in sorted(counts.items())))
 
 
 __all__ = ["main"]

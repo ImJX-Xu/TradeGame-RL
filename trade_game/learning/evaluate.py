@@ -57,6 +57,7 @@ def play_policy(
 ) -> PolicyEpisode:
     """以确定性条件策略游玩一局挑战模式，并保留完整动作轨迹。"""
 
+    model = model.to(device)
     environment = AgentEnvironment()
     start = environment.reset(seed=seed)
     observation = start.observation

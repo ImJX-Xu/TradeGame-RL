@@ -27,6 +27,20 @@ from .policy import (
 )
 from .ppo import PPOConfig, PPOTrainer, PPOUpdateMetrics
 from .rollout import RolloutBatch, RolloutBuffer, RolloutStep
+from .imitation import (
+    BehaviorCloningConfig,
+    BehaviorCloningMetrics,
+    DAggerConfig,
+    DAggerPPOTrainingConfig,
+    DAggerPPOTrainingResult,
+    DAggerRoundMetrics,
+    DAggerTrainingResult,
+    DemonstrationBuffer,
+    ImitationExample,
+    load_dagger_ppo_config,
+    train_behavior_cloning,
+    train_dagger_ppo,
+)
 from .train import (
     PPOTrainingConfig,
     TrainingResult,
@@ -52,6 +66,15 @@ __all__ = [
     "PPOTrainer",
     "PPOTrainingConfig",
     "PPOUpdateMetrics",
+    "BehaviorCloningConfig",
+    "BehaviorCloningMetrics",
+    "DAggerConfig",
+    "DAggerPPOTrainingConfig",
+    "DAggerPPOTrainingResult",
+    "DAggerRoundMetrics",
+    "DAggerTrainingResult",
+    "DemonstrationBuffer",
+    "ImitationExample",
     "PolicyEpisode",
     "PolicyTraceStep",
     "StateEncoder",
@@ -70,4 +93,7 @@ __all__ = [
     "play_policy",
     "save_checkpoint",
     "train_ppo",
+    "load_dagger_ppo_config",
+    "train_behavior_cloning",
+    "train_dagger_ppo",
 ]

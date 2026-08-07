@@ -81,18 +81,22 @@ def load_training_config(path: Path) -> PPOTrainingConfig:
     )
 
 
-def train_ppo(config: PPOTrainingConfig) -> TrainingResult:
-    """执行配置指定次数的采样、PPO 更新和周期性确定性评估。"""
+def train_ppo(
+    config: PPOTrainingConfig,
+    *,
+    initial_model: ActorCritic | None = None,
+) -> TrainingResult:
+    """执行 PPO；可从行为克隆或 DAgger 产生的模型继续微调。"""
 
     if config.environment_count <= 0:
         raise ValueError("训练环境数量必须为正")
     torch.manual_seed(config.seed)
     environments = tuple(AgentEnvironment() for _ in range(config.environment_count))
     start = environments[0].reset(seed=config.seed)
-    model = ActorCritic(
-        ObservationSpec.from_observation(start.observation),
-        encoder_config=config.encoder,
-    )
+    spec = ObservationSpec.from_observation(start.observation)
+    model = initial_model if initial_model is not None else ActorCritic(spec, encoder_config=config.encoder)
+    if model.encoder.spec != spec:
+        raise ValueError("初始模型的观测规格与当前游戏目录不一致")
     trainer = PPOTrainer(
         model,
         environments,

@@ -1,0 +1,52 @@
+[training]
+updates = 1953
+seed = 7
+device = "cuda"
+environment_count = 8
+evaluation_interval = 195
+evaluation_seeds = [101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163, 167, 173, 179]
+tensorboard_flush_interval = 10
+checkpoint_path = "runs/dagger_ppo_v1_1m_20260807/dagger_ppo_v1_1m.pt"
+tensorboard_log_dir = "runs/dagger_ppo_v1_1m_20260807/tensorboard"
+
+[dagger]
+expert_episodes = 16
+rounds = 2
+episodes_per_round = 8
+beta_start = 0.50
+beta_final = 0.00
+seed_offset = 100000
+max_decisions_per_episode = 512
+
+[bc]
+initial_epochs = 8
+round_epochs = 4
+batch_size = 64
+learning_rate = 0.001
+weight_decay = 0.00001
+max_grad_norm = 1.0
+
+[ppo]
+gamma = 0.995
+gae_lambda = 0.95
+rollout_steps = 64
+ppo_epochs = 4
+minibatch_size = 64
+learning_rate = 0.0003
+final_learning_rate = 0.0001
+clip_range = 0.2
+value_clip_range = 0.2
+value_coefficient = 0.5
+entropy_coefficient = 0.01
+final_entropy_coefficient = 0.002
+max_grad_norm = 0.5
+target_kl = 0.08
+initial_target_kl = 0.01
+normalize_advantages = true
+
+[encoder]
+embedding_dim = 16
+entity_dim = 64
+state_dim = 128
+hidden_dim = 128
+dropout = 0.0

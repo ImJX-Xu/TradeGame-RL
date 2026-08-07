@@ -21,6 +21,7 @@ from trade_game.core import (
     cargo_quantity,
     maximum_purchase_quantity,
     maximum_truck_quantity,
+    money,
     total_debt,
 )
 
@@ -117,6 +118,74 @@ def decode_action(
     return ActionDecoder(vocabulary).decode(session, action)
 
 
+def encode_command(
+    session: GameSession,
+    command: Command,
+    vocabulary: ActionVocabulary,
+) -> ActionHead:
+    """将核心命令编码为当前会话下可解码的动作头。
+
+    贪心教师使用核心命令工作，而策略网络只输出固定的六个离散索引。数量
+    头只有 21 个档位，因此这里会在当前最大可行数量上选择能最接近命令的
+    档位；若恰好可表示，则优先使用精确档位。
+    """
+
+    if isinstance(command, Buy):
+        maximum = maximum_purchase_quantity(
+            session.catalog,
+            session.rules,
+            session.state,
+            command.product_id,
+        )
+        quantity_index = _encode_integer_quantity(command.quantity, maximum, "采购数量")
+        return ActionHead(
+            action_index=vocabulary.action_index(CommandType.BUY),
+            product_index=vocabulary.product_index(command.product_id),
+            quantity_index=quantity_index,
+        )
+    if isinstance(command, Sell):
+        maximum = cargo_quantity(session.state.player.cargo_lots, command.product_id)
+        quantity_index = _encode_integer_quantity(command.quantity, maximum, "出售数量")
+        return ActionHead(
+            action_index=vocabulary.action_index(CommandType.SELL),
+            product_index=vocabulary.product_index(command.product_id),
+            quantity_index=quantity_index,
+        )
+    if isinstance(command, Travel):
+        return ActionHead(
+            action_index=vocabulary.action_index(CommandType.TRAVEL),
+            city_index=vocabulary.city_index(command.destination),
+            transport_index=vocabulary.transport_index(command.mode),
+            fast_index=int(command.fast),
+        )
+    if isinstance(command, Borrow):
+        maximum = available_credit(session.catalog, session.rules, session.state)
+        quantity_index = _encode_money_amount(command.amount, maximum, "借款金额")
+        return ActionHead(
+            action_index=vocabulary.action_index(CommandType.BORROW),
+            quantity_index=quantity_index,
+        )
+    if isinstance(command, Repay):
+        maximum = min(total_debt(session.state.loans), session.state.player.cash)
+        quantity_index = _encode_money_amount(command.amount, maximum, "还款金额")
+        return ActionHead(
+            action_index=vocabulary.action_index(CommandType.REPAY),
+            quantity_index=quantity_index,
+        )
+    if isinstance(command, BuyTruck):
+        maximum = maximum_truck_quantity(session.rules, session.state)
+        quantity_index = _encode_integer_quantity(command.quantity, maximum, "购车数量")
+        return ActionHead(
+            action_index=vocabulary.action_index(CommandType.BUY_TRUCK),
+            quantity_index=quantity_index,
+        )
+    if isinstance(command, RepairTruck):
+        return ActionHead(action_index=vocabulary.action_index(CommandType.REPAIR_TRUCK))
+    if isinstance(command, NextDay):
+        return ActionHead(action_index=vocabulary.action_index(CommandType.NEXT_DAY))
+    raise AssertionError(f"动作协议未覆盖核心命令：{type(command).__name__}")
+
+
 def _resolve_integer_quantity(quantity_bin: QuantityBin, maximum: int, field: str) -> int:
     if maximum <= 0:
         raise ActionDecodeError(f"当前没有{field}")
@@ -132,4 +201,43 @@ def _resolve_amount(quantity_bin: QuantityBin, maximum: Decimal, field: str) -> 
     return amount
 
 
-__all__ = ["ActionDecodeError", "ActionDecoder", "decode_action"]
+def _encode_integer_quantity(target: int, maximum: int, field: str) -> int:
+    if target <= 0 or maximum <= 0 or target > maximum:
+        raise ActionDecodeError(f"{field}超出当前可行范围")
+    candidates = tuple(
+        (index, integer_quantity_from_bin(quantity_bin, maximum))
+        for index, quantity_bin in enumerate(QuantityBin)
+    )
+    return _closest_quantity_index(target, candidates)
+
+
+def _encode_money_amount(target: Decimal, maximum: Decimal, field: str) -> int:
+    target = money(target)
+    maximum = money(maximum)
+    if target <= 0 or maximum <= 0 or target > maximum:
+        raise ActionDecodeError(f"{field}超出当前可行范围")
+    candidates = tuple(
+        (index, money_amount_from_bin(quantity_bin, maximum))
+        for index, quantity_bin in enumerate(QuantityBin)
+    )
+    return _closest_quantity_index(target, candidates)
+
+
+def _closest_quantity_index(
+    target: int | Decimal,
+    candidates: tuple[tuple[int, int | Decimal], ...],
+) -> int:
+    exact = tuple(index for index, value in candidates if value == target)
+    if exact:
+        return min(exact, key=lambda index: (index != int(QuantityBin.ONE), -index))
+    return min(
+        candidates,
+        key=lambda item: (
+            abs(item[1] - target),
+            item[1] > target,
+            -item[0],
+        ),
+    )[0]
+
+
+__all__ = ["ActionDecodeError", "ActionDecoder", "decode_action", "encode_command"]
