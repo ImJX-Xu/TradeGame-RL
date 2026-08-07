@@ -2,6 +2,8 @@
 
 每个决策步骤的折扣系数为 `gamma ** elapsed_days`，因此不同游戏操作跨越的天数会进入 GAE 与回报计算。当前默认配置每次收集 512 个决策步骤，再进行 4 轮、每轮 64 条样本的小批量更新。
 
+`dagger_ppo_v1_1m.toml` 使用完全相同的 PPO 更新流程；区别仅在于第一次采样前，模型已经由贪心教师轨迹、行为克隆和两轮 DAgger 初始化。PPO 仍然只根据 `reward_v1` 的环境反馈更新策略与价值网络。
+
 ```mermaid
 flowchart TB
     classDef runtime fill:#EAF8F2,stroke:#16805C,stroke-width:1.5px,color:#173B2E
@@ -20,7 +22,7 @@ flowchart TB
     minibatch["4 个 epoch；minibatch=64<br/>evaluate_actions 重算 log_prob、entropy、V(s)"]:::optimize
     objective["PPO 目标<br/>策略裁剪 + 价值裁剪 - 熵正则"]:::optimize
     update["Adam：learning_rate=3e-4<br/>梯度范数裁剪；target KL 提前停止"]:::optimize
-    tensorboard["TensorBoard<br/>损失、KL、裁剪率、梯度范数、动作占比、条件头熵、每局最终资产、固定种子评估"]:::monitor
+    tensorboard["TensorBoard<br/>损失、KL、裁剪率、梯度范数、动作占比、条件头熵、每局最终资产、训练集种子评估"]:::monitor
 
     observation --> model
     model --> sample

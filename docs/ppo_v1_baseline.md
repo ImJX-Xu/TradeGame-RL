@@ -44,7 +44,7 @@ hidden_dim    = 128
 - 旅行城市头、运输方式头和快速运输头；
 - 买入、卖出、借款、还款和购车数量头。
 
-各条件分支只在对应动作被选中时参与联合动作概率。PPO 使用完整六元组的联合 `log_prob`，而不是把每个动作头拆成相互独立的 PPO 目标。
+各条件分支只在对应动作被选中时参与联合动作概率。PPO 以完整六元组的联合 `log_prob` 构造单一策略目标，各动作头按照条件路径参与概率计算。
 
 价值网络使用同一状态编码器，输出全局状态价值 `V(s)`。
 
@@ -64,7 +64,7 @@ PPO 使用原生 PyTorch 实现，包含：
 - clipped policy objective；
 - clipped value objective；
 - 熵正则、KL 目标、梯度裁剪；
-- 固定种子确定性评估。
+- 训练监控种子确定性评估。
 
 1M 步基线训练使用 `1,954` 次更新、每次 `512` 个环境决策，共 `1,000,448` 步。主要配置为：
 
@@ -82,11 +82,7 @@ target_kl          = 0.03
 
 ## 5. TensorBoard 记录
 
-训练日志保存在：
-
-```text
-runs/ppo_1m_diagnostics/tensorboard/
-```
+![第一版 PPO 训练概览](figures/ppo_v1_overview.png)
 
 当前记录包括：
 
@@ -95,19 +91,12 @@ runs/ppo_1m_diagnostics/tensorboard/
 - 八类动作采样占比；
 - 条件动作头熵；
 - policy loss、value loss、total loss、entropy、KL、clip fraction、gradient norm、epoch 和 KL 提前停止；
-- 固定种子评估的平均资产、中位数资产和破产率。
+- 训练集种子评估的平均资产、中位数资产和破产率。
 
-不记录参数和梯度直方图，避免训练面板被模型内部张量分布淹没。
 
 ## 6. 第一版结果
 
-最终检查点为：
-
-```text
-runs/ppo_1m_diagnostics/ppo_1m.pt
-```
-
-在固定种子 `101、103、107、109、113` 上的最终资产为：
+在训练监控种子 `101、103、107、109、113` 上的最终资产为：
 
 | 种子 | 最终资产 |
 |---:|---:|

@@ -1,177 +1,432 @@
 # TradeGame-RL
 
-一个以交易规则为核心、支持人类游玩与强化学习研究的回合制贸易游戏。
+TradeGame-RL 是一个以贸易经营为核心的回合制游戏，也是一个面向强化学习研究的可复现环境。玩家在多个城市之间采购和销售商品，规划陆运或海运路线，管理货车、库存、贷款和利息，并在 150 天挑战周期内扩大可清算资产。
 
-代码按严格单向依赖组织为三层：
+项目采用“游戏核心优先”的架构。游戏规则、状态和数值由 `trade_game.core` 统一维护；人类界面、智能体接口和 PyTorch 学习算法通过外围层接入同一套核心命令。这使得人类玩家与智能体面对完全一致的交易、运输、融资、车辆和市场规则。
 
-1. `trade_game.core`：唯一的游戏规则与状态变更来源。
-2. `trade_game.ui`：人类界面，只将交互转换为核心命令。
-3. `trade_game.agent`：智能体动作协议、动作掩码、状态观测与核心命令解码。
+项目包含三个可独立使用、也可相互验证的部分：
 
-后续的 PyTorch 编码器、策略网络和训练算法将只依赖这三层提供的稳定接口。
+- 面向玩家的图形与终端经营游戏；
+- 面向训练的动作协议、状态观测、动作掩码与环境接口；
+- 基于 PyTorch 的实体编码、Actor-Critic、PPO、贪心基准、行为克隆和 DAgger 实现。
 
-## 游玩
+## 目录
 
-图形界面是可选依赖，首次使用前安装：
+- [快速开始](#快速开始)
+- [项目结构](#项目结构)
+- [游戏核心](#游戏核心)
+- [人类游玩](#人类游玩)
+- [智能体接口](#智能体接口)
+- [状态观测与编码](#状态观测与编码)
+- [Actor-Critic 网络](#actor-critic-网络)
+- [奖励与 PPO](#奖励与-ppo)
+- [学习与训练](#学习与训练)
+- [相关文档](#相关文档)
+
+## 快速开始
+
+项目需要 Python 3.11 或更高版本。安装游戏、图形界面和训练依赖：
 
 ```powershell
-pip install -e ".[ui]"
+python -m pip install -e ".[ui,learning]"
 ```
 
-智能体张量批处理与后续 PyTorch 网络使用独立可选依赖：
-
-```powershell
-pip install -e ".[learning]"
-```
-
-在仓库目录执行：
-
-```powershell
-python -m trade_game play
-```
-
-可用 `--seed` 固定随机过程，或用 `--mode challenge` 开始 150 天挑战模式：
+开始一局可复现的 150 天挑战：
 
 ```powershell
 python -m trade_game play --seed 7 --mode challenge
 ```
 
-图形界面以货运调度台为主屏：在地图或“路线”页选择当前运输网络中的可达城市并发运；“交易”页可选择商品、调整数量后采购或出售；“车辆”和“融资”页分别处理维修、购车、借款与还款；底部“日结”推进一天。所有图形操作都通过游戏核心命令执行。
-
-终端界面可使用 `--terminal` 启动：
+使用终端界面游玩：
 
 ```powershell
-python -m trade_game play --terminal
+python -m trade_game play --terminal --seed 7 --mode challenge
 ```
 
-终端内使用 `help` 查看命令。常用操作包括：
+以默认配置验证 PPO 训练链路：
+
+```powershell
+python -m trade_game train --config trade_game/learning/configs/ppo_default.toml
+```
+
+## 项目结构
 
 ```text
-market
-buy zz_flour 10
-travel 石家庄 land
-borrow 500
-next
+trade_game/
+├── core/                         游戏领域核心
+│   ├── data/                     CSV/TOML 数值入口
+│   ├── catalog.py                城市、商品、路线目录
+│   ├── models.py                 游戏领域对象与状态
+│   ├── commands.py               核心命令协议
+│   ├── session.py                游戏会话与命令分发
+│   ├── price_functions.py        价格函数
+│   ├── trading.py                采购与销售
+│   ├── transport.py              路线、运费、时长和货损
+│   ├── finance.py                贷款、利息和还款
+│   ├── vehicles.py               货车购买、维护和运力
+│   ├── timeflow.py               日结、市场事件和库存变化
+│   └── settlement.py              资产结算与终局判断
+├── ui/                           人类游玩界面
+│   ├── arcade/                   图形化货运调度台
+│   ├── terminal.py               终端游玩界面
+│   └── cli.py                    游玩命令入口
+├── agent/                        智能体适配层
+│   ├── actions.py                六元组动作协议与索引词表
+│   ├── masks.py                  合法动作掩码
+│   ├── observation.py            结构化状态观测
+│   ├── decoder.py                ActionHead 与核心 Command 的双向转换
+│   ├── environment.py            reset/step 训练环境
+│   └── rewards.py                reward_v1
+├── learning/                     原生 PyTorch 学习层
+│   ├── batching.py               观测、掩码和动作的批处理
+│   ├── encoder.py                实体嵌入与目标注意力编码器
+│   ├── policy.py                 条件动作策略与价值网络
+│   ├── rollout.py                轨迹缓存和 GAE
+│   ├── ppo.py                    PPO 采样与参数更新
+│   ├── imitation.py              贪心教师、BC 和 DAgger
+│   ├── evaluate.py               确定性策略评估
+│   ├── tensorboard.py            TensorBoard 指标写入
+│   ├── train.py                  训练配置和检查点
+│   └── configs/                  PPO 与编码器 TOML 配置
+└── analysis/                     离线数值与经济性分析
+    └── greedy.py                 基于公开行情的经营基准
 ```
 
-## 智能体动作
-
-Agent 使用固定的扁平多头离散动作协议。`action_index` 直接选择 `BUY`、`SELL`、`TRAVEL`、`BORROW`、`REPAY`、`REPAIR_TRUCK`、`BUY_TRUCK`、`NEXT_DAY` 八种核心操作，不再拆分操作大类和子动作。
-
-完整动作由六个固定顺序的索引组成：
+依赖关系如下：
 
 ```text
-(action_index, product_index, city_index, transport_index, quantity_index, fast_index)
+trade_game.core
+├── trade_game.ui
+├── trade_game.agent
+│   └── trade_game.learning
+└── trade_game.analysis
 ```
 
-不同操作只读取自身需要的参数：采购和出售读取商品与数量，运输读取城市、运输方式和加急选项，借款、还款和购车读取数量；维修与推进日期不读取额外参数。商品和城市索引按当前 CSV 目录顺序生成，数量头包含 `1、5%、10% ... 95%、100%` 共 21 档：
+`GameSession.dispatch` 是游戏操作的统一入口。图形界面将玩家操作转换为 `Command`，智能体将六元组 `ActionHead` 解码为同样的 `Command`，随后由核心层执行规则并产生新的游戏状态。
+
+## 游戏核心
+
+### 数据与规则
+
+静态实体数据位于 `trade_game/core/data/`：
+
+| 文件 | 内容 |
+|---|---|
+| `cities.csv` | 城市名称、区域、运输方式、港口、银行和市场角色 |
+| `products.csv` | 商品类别、基础进价、利润率、产地、保质期和价格波动参数 |
+| `routes.csv` | 城市之间的陆运与海运路线及距离 |
+| `rules.toml` | 初始资金、运力、利息、维护、市场事件和结算参数 |
+
+CSV 提供城市、商品和路线等实体记录，TOML 提供游戏规则数值。目录加载器在启动时建立交叉引用，核心运行过程使用类型化的 `Catalog`、`Product`、`City`、`Route` 和 `GameRules`。
+
+### 市场与价格函数
+
+每个商品拥有基础采购价格、产地、静态利润率和动态价格参数。价格函数根据市场调整、商品利润率、目的城市消费属性、真实产地和运输距离计算当前采购价与销售价。
+
+市场状态由长期商品趋势、城市局部价差和阶段性供需事件共同形成。趋势具有持续性，局部价差随时间平滑变化；短期事件表现为某类商品在一组城市中的稀缺或积压，并在事件周期内逐步生效和消退。历史报价由核心时间流维护，公开市场消息由当前市场事件生成。
+
+### 交易、运输与经营
+
+- 采购只能发生在商品声明的有效产地。
+- 每个城市商品对拥有 14 天采购恢复期；恢复期间可以出售已有库存，但不能再次采购同一城市的同一商品。
+- 异地销售结合商品利润率、目的城市需求和距离溢价。
+- 陆运和海运拥有不同的路线、时长、运费和货损特征。
+- 货物按真实产地和批次保存，并按 FIFO 顺序销售。
+- 贷款产生逐日利息，货车产生逐日运营成本。
+- 货车数量决定运输能力，车辆维护恢复可用状态。
+- 每次跨越游戏日的操作都会执行利息、人工成本、商品老化、灭失和市场刷新。
+
+## 人类游玩
+
+图形界面以复古货运调度台为视觉形式，围绕玩家的经营循环组织为地图、交易、调度、车辆、融资和市场信息区域。地图显示城市所属区域和从当前位置可达的城市；交易界面分别提供采购和销售商品列表；调度界面展示目的地、运输方式、路线时长和费用；车辆与融资界面管理运力和资金。
+
+图形操作统一提交核心命令，市场电报以简短的游戏内语言提示全局重要行情，例如商品稀缺、库存积压和预计持续时间。
+
+## 智能体接口
+
+### 动作协议
+
+智能体输出固定六元组：
+
+```text
+(action_index, product_index, city_index,
+ transport_index, quantity_index, fast_index)
+```
+
+`action_index` 的八个值直接对应核心操作：
+
+| 索引 | 操作 | 使用参数 |
+|---:|---|---|
+| 0 | BUY | 商品、数量 |
+| 1 | SELL | 商品、数量 |
+| 2 | TRAVEL | 城市、运输方式、加急 |
+| 3 | BORROW | 金额档位 |
+| 4 | REPAY | 金额档位 |
+| 5 | REPAIR_TRUCK | 无 |
+| 6 | BUY_TRUCK | 数量档位 |
+| 7 | NEXT_DAY | 无 |
+
+商品、城市和运输方式的索引来自当前目录词表。数量头使用 21 个固定档位：
+
+```text
+1、5%、10%、15%、...、95%、100%
+```
+
+百分比档位相对于当前可执行上限解码为实际商品数量、贷款金额、还款金额或货车数量。动作解码器将动作头转换为 `Buy`、`Sell`、`Travel`、`Borrow`、`Repay`、`RepairTruck`、`BuyTruck` 或 `NextDay`。
+
+### 动作掩码
+
+动作掩码按照当前游戏状态提供可执行动作集合。策略先从八类核心操作中选择，再根据操作类型读取商品、城市、运输方式、数量和加急选项的条件掩码。掩码直接参与动作采样和轨迹动作概率计算，使策略输出与核心命令协议保持一致。
+
+### AgentEnvironment
+
+`AgentEnvironment` 提供训练算法需要的 `reset` 和 `step` 接口：
 
 ```python
-from trade_game.agent import (
-    ActionHead,
-    ActionVocabulary,
-    decode_action,
-)
-from trade_game.core import CommandType, TransportMode, create_game_session
+from trade_game.agent import AgentEnvironment
 
-session = create_game_session(seed=7)
-vocabulary = ActionVocabulary.from_catalog(session.catalog)
-action = ActionHead(
-    action_index=vocabulary.action_index(CommandType.TRAVEL),
-    city_index=vocabulary.city_index("石家庄"),
-    transport_index=vocabulary.transport_index(TransportMode.LAND),
-)
-command = decode_action(session, action, vocabulary)
-result = session.dispatch(command)
+environment = AgentEnvironment()
+start = environment.reset(seed=7)
+transition = environment.step(action_head)
 ```
 
-动作协议只保存稳定索引，不依赖 NumPy、Gymnasium 或 PyTorch。one-hot、embedding 和策略网络属于后续学习层。
+每次转移包含下一状态观测、下一动作掩码、奖励、实际经过天数、终局标记和资产统计。环境内部始终通过 `GameSession.dispatch` 执行动作。
 
-推理前使用动作掩码屏蔽当前不能执行的选择。掩码只包含布尔值：先读取 `action`，再按已选命令读取条件参数掩码。例如采购依次读取 `buy_product` 和 `buy_quantity[product_index]`；运输依次读取 `travel_city`、`travel_transport[city_index]`、`travel_fast[city_index][transport_index]`。
+## 状态观测与编码
 
-```python
-from trade_game.agent import build_action_mask
+Agent 观测由全局经营状态和多个实体集合组成。游戏目录包含 14 个城市和 18 个商品，市场、路线与货物批次分别保持各自的实体维度。
 
-mask = build_action_mask(session, vocabulary)
-can_travel = mask.action[vocabulary.action_index(CommandType.TRAVEL)]
+市场行情组织为城市与商品组成的报价矩阵，每个市场单元保留四个离散时间点：
+
+```text
+[city, product, D-6 / D-4 / D-2 / D]
 ```
 
-## 智能体状态观测
+价格使用相对于商品基础采购价格的比例特征。城市、商品、区域、商品类别和运输方式通过可学习 embedding 表示；城市能力、商品属性、路线距离、市场可采购性、采购恢复比例、库存数量和货物年龄等信息作为数值特征输入。
 
-`build_observation` 将 `GameSession` 转换为不可变的结构化状态快照。它不依赖 NumPy、PyTorch 或 Gymnasium；后续训练层负责将其按批次转换为张量。
+货物批次具有动态长度。批处理阶段以当前批次的最大批次数补齐，并使用 `cargo_valid` 标记真实批次。市场报价、路线和货物批次分别形成实体 token；全局经营状态生成查询向量，目标注意力据此汇聚当前最相关的市场、路线和库存信息，最终融合为固定维度状态向量。
 
-```python
-from trade_game.agent import build_observation
+编码器默认配置为：
 
-observation = build_observation(session, vocabulary)
-print(len(observation.market_quotes))       # 14 个城市
-print(len(observation.market_quotes[0]))    # 每城 18 个商品
-print(observation.market_history_valid)     # D-6、D-4、D-2、D 的有效位置
+| 参数 | 数值 |
+|---|---:|
+| `embedding_dim` | 16 |
+| `entity_dim` | 64 |
+| `state_dim` | 128 |
+| `hidden_dim` | 128 |
+| `dropout` | 0 |
+
+![状态编码器](docs/architecture/state-encoder.png)
+
+完整结构说明见 [状态编码器文档](docs/architecture/state-encoder.md)。
+
+## Actor-Critic 网络
+
+Actor-Critic 共享状态编码器，并在状态向量上构造策略和价值分支。
+
+Actor 的条件动作结构为：
+
+- 动作类型头输出 8 类核心操作。
+- BUY 与 SELL 使用当前城市市场 token 选择商品，再选择数量档位。
+- TRAVEL 使用路线 token 选择城市、运输方式和加急选项。
+- BORROW、REPAY 和 BUY_TRUCK 使用动作类型 embedding 产生各自的数量分布。
+- REPAIR_TRUCK 与 NEXT_DAY 直接输出无参数命令。
+
+采样得到的各条件头 log probability 按实际动作路径相加，形成六元组动作的联合 log probability。Critic 使用共享状态向量输出全局状态价值 `V(s)`。
+
+![Actor-Critic 网络](docs/architecture/actor-critic.png)
+
+详见 [Actor-Critic 文档](docs/architecture/actor-critic.md)。
+
+## 奖励与 PPO
+
+### reward_v1
+
+奖励以可清算经营资产的对数变化为密集信号：
+
+```text
+asset_log_change = log(assets_after) - log(assets_before)
 ```
 
-市场状态以 `城市 x 商品 x 4` 的参考出售价格矩阵表示，四个时间点固定为 `D-6、D-4、D-2、D`。每个市场单元还携带采购可用性；价格统一按商品基础进价取对数比例，避免不同商品量级直接干扰网络训练。
+可清算资产统一计入现金、库存变现价值、货车残值和债务。挑战周期结束时加入终局资产奖励，破产状态加入惩罚。该定义将借款视为资产负债表变化，使资金规模和真实经营收益保持区分。
 
-观测还包括：全局经营状态、城市和商品的公开静态属性、从当前位置出发的陆运和海运估算，以及保留真实产地、保质期和 FIFO 顺序的可变长度货物批次。市场电报文本、事件持续时间、趋势项、局部价差和事件振幅均不进入观测；智能体只能从公开报价历史推断市场走势。
+### 原生 PyTorch PPO
 
-动作掩码与状态观测保持分离。策略网络使用状态理解市场和经营状况，再用掩码排除无法提交给 `GameSession.dispatch` 的候选动作。
+PPO 训练循环由 `PPOTrainer`、`RolloutBuffer`、`StateEncoder` 和 `ActorCritic` 组成：
 
-学习层先将结构化观测批量化为 PyTorch 张量，再由 `StateEncoder` 执行实体嵌入、行情编码与目标注意力汇聚：
+1. 环境按照当前策略采集固定长度轨迹。
+2. 轨迹保存观测、动作掩码、六元组动作、采样策略 log probability、价值、奖励和经过天数。
+3. GAE 根据实际经过天数使用 `gamma ** elapsed_days` 折扣。
+4. 更新阶段重新计算同一批动作的联合 log probability、熵和价值。
+5. PPO 同时使用策略裁剪、价值裁剪、熵正则、梯度裁剪和 KL 提前停止。
+6. 训练集种子评估使用确定性条件策略，并记录最终资产、奖励和完整游玩轨迹。
 
-```python
-from trade_game.learning import ActionMaskBatch, ObservationBatch, StateEncoder
+![PPO 训练流程](docs/architecture/ppo-training.png)
 
-observations = [build_observation(session, vocabulary)]
-masks = [build_action_mask(session, vocabulary)]
-state_batch = ObservationBatch.from_observations(observations)
-mask_batch = ActionMaskBatch.from_masks(masks)
-encoder = StateEncoder(state_batch.spec)
-state = encoder(state_batch).state  # [batch_size, 256]
+详见 [PPO 训练流程文档](docs/architecture/ppo-training.md)。
+
+## 学习与训练
+
+两条训练路线共享同一个 `AgentEnvironment`、状态编码器、Actor-Critic 网络和动作协议。原生 PPO 从随机参数开始，通过环境奖励学习；贪心-DAgger-PPO 先利用贪心经营轨迹初始化策略，再使用 PPO 优化长期回报。
+
+### 共同训练接口
+
+每个决策步骤都经过同一条数据路径：
+
+```text
+AgentObservation + ActionMask
+        -> ObservationBatch + ActionMaskBatch
+        -> StateEncoder
+        -> Actor-Critic
+        -> 六元组 ActionHead
+        -> GameSession.dispatch
+        -> next observation, reward, elapsed_days
 ```
 
-市场价格保持为 `[B, 城市, 商品, 4]`，货物批次按当前 batch 的最大批次数动态补齐；`cargo_valid` 标记真实批次，动作掩码仍独立于状态张量。编码器以当前全局经营状态为查询，分别从市场、路线和货物实体中汇聚当前最相关的信息，再输出固定维度状态向量。
+策略网络输出多个条件动作头，但只对当前动作路径计算概率。例如 `BUY` 只读取动作类型、商品和数量三个头；`TRAVEL` 读取动作类型、目的地、运输方式和加急四个头。每个头都先应用当前状态的动作掩码，再从合法类别中采样。当前路径上的各头 log probability 相加，得到整个六元组动作的联合 `log_prob`。
 
-## 策略与价值网络
+动作掩码限定智能体在当前状态下的合法类别，`GameSession.dispatch` 负责执行完整游戏规则。训练推理和人类游玩因此共享同一套核心命令约束。
 
-`ActorCritic` 共享 `StateEncoder`。策略按命令实际使用的参数顺序生成联合动作概率：采购和出售为“商品、数量”，运输为“城市、运输方式、加急”，借贷和购车为“数量”；维修和推进日期没有额外参数。每个条件分支都在采样前读取对应的动作掩码。
+### PPO 训练
 
-```python
-from trade_game.learning import ActorCritic
+#### Rollout 采样
 
-model = ActorCritic(state_batch.spec)
-sample = model.sample(state_batch, mask_batch)
-action_tensor = sample.action.as_tensor()  # [batch_size, 6]
+PPO 训练器使用当前策略与游戏环境交互，固定收集一定数量的决策转移。每条转移保存：
+
+- 结构化观测和对应的动作掩码；
+- 六元组动作、旧策略联合 `log_prob` 和旧价值 `V(s_t)`；
+- reward、是否终局、终局资产和实际经过天数。
+
+采样阶段策略处于评估模式并使用 `torch.no_grad()`；轨迹进入 `RolloutBuffer` 后统一进行 GAE 和参数更新。并行环境分别推进独立的游戏回合。
+
+#### 按游戏时间计算 GAE
+
+一次 `TRAVEL` 可能经过数天，而一次交易操作通常只经过一天。因此折扣使用每个转移的 `elapsed_days_t`：
+
+```text
+gamma_t = gamma ** elapsed_days_t
+delta_t = r_t + gamma_t * (1 - done_t) * V(s_{t+1}) - V(s_t)
+A_t = delta_t + gamma_t * lambda * A_{t+1}
 ```
 
-训练时使用 `model.evaluate_actions(state_batch, mask_batch, actions)` 重算同一批轨迹动作的联合 `log_prob`、条件熵和全局价值 `V(s)`，供后续 PPO 目标函数使用。
+其中 `A_t` 是优势估计，`A_t` 与价值目标共同用于 PPO 更新。终局转移不 bootstrap 下一个状态；没有跨天的操作使用 `elapsed_days_t = 1`。
 
-完整结构图见 [智能体结构文档](docs/architecture/README.md)：其中分别给出状态编码器、Actor-Critic 条件动作网络和原生 PPO 训练流程。
+#### PPO 裁剪更新
 
-## 训练回合
+更新阶段使用保存的旧策略概率与当前网络重新计算的概率构造比值：
 
-`AgentEnvironment` 默认创建 150 天挑战回合。`reset` 返回初始观测和动作掩码；`step` 只接受 `ActionHead`，并始终通过动作解码器和 `GameSession.dispatch` 执行规则。
+```text
+rho_t = exp(log_prob_new - log_prob_old)
+L_policy = -mean(min(rho_t * A_t,
+                     clip(rho_t, 1-epsilon, 1+epsilon) * A_t))
+```
 
-默认 `reward_v1` 使用可清算经营资产的对数增量作为密集奖励。现金、货物当前变现价值、货车残值和债务统一计入资产，因此借款不会被误判为利润；挑战终局按最终资产给予额外奖励，破产会受到额外惩罚。每个转移还记录实际经过天数，供训练算法按游戏日而非决策次数折扣。
+价值分支使用价值裁剪损失，策略熵作为正则项鼓励早期探索，最终目标为：
 
-## PPO 训练
+```text
+L_total = L_policy + value_coefficient * L_value
+          - entropy_coefficient * entropy
+```
 
-安装学习依赖后，使用默认 TOML 配置启动原生 PyTorch PPO：
+每个 minibatch 都会重新执行状态编码、动作掩码和联合动作概率计算，PPO 直接优化采样时使用的条件动作分布。更新过程使用梯度范数裁剪；近似 KL 超过当前目标时结束本轮 epoch，控制单次更新的策略变化幅度。
+
+#### 训练调度与评估
+
+训练配置可以指定环境数量、rollout 长度、PPO epoch、minibatch 大小、学习率、熵系数和 KL 目标。并行配置通常保持每轮总样本量稳定，例如 `8` 个环境各采集 `64` 步，得到 `512` 条转移。学习率、熵系数和 KL 目标可以从初始值平滑调度到最终值。
+
+训练过程中使用固定的训练集种子周期性评估确定性策略；测试集种子用于训练结束后的完整回合评估。TensorBoard 记录训练过程指标，最终评估数据由 `evaluate_policy` 统一计算。
+
+默认配置适合验证训练链路：
 
 ```powershell
-trade-game train --config trade_game/learning/configs/ppo_default.toml
+python -m trade_game train --config trade_game/learning/configs/ppo_default.toml
 ```
 
-`PPOTrainer` 保存结构化观测、条件动作掩码、六元组动作、旧策略对数概率、价值、奖励、终局位和实际经过天数。GAE 与 bootstrap 使用 `gamma ** elapsed_days`；更新阶段以同一观测和掩码重算联合动作概率，并执行策略裁剪、价值裁剪、熵正则、梯度裁剪和 KL 提前停止。
-
-训练配置中的默认编码器为 `16 / 64 / 128 / 128`，用于从零开始 PPO 的较小基线。训练命令支持覆盖更新次数、单次采样数量和检查点路径：
+覆盖更新次数、rollout 长度、checkpoint 和 TensorBoard 目录：
 
 ```powershell
-trade-game train --updates 10 --rollout-steps 512 --checkpoint artifacts/ppo.pt
+python -m trade_game train `
+  --config trade_game/learning/configs/ppo_default.toml `
+  --updates 10 `
+  --rollout-steps 512 `
+  --checkpoint runs/ppo_quick/ppo.pt `
+  --tensorboard-logdir runs/ppo_quick/tensorboard
 ```
 
-每隔配置指定的更新次数，训练入口会使用固定种子和确定性条件策略评估挑战回合；`play_policy` 返回每局动作、奖励和资产变化轨迹。
+### 贪心-DAgger-PPO 训练
 
-训练入口向 TensorBoard 写入每局最终资产及其近 20 局均值、八类动作占比、条件动作头熵、完整 PPO 优化指标，以及固定种子评估的资产与破产率：
+这条路线依次经过贪心示范、BC 初始化、DAgger 状态聚合和 PPO 回报优化。前半段建立经营策略先验，后半段使用环境 reward 学习长期决策。
+
+#### 贪心教师
+
+`GreedyPolicy` 的输入是当前游戏状态和公开行情。它枚举商品、有效产地、销售目的地和运输方式，估算采购、运输、销售、运费、货损、占用天数和融资需求，选择当前可以完成的高价值经营计划。持有库存时，它比较本地出售与异地套现；资金不足时使用当前可用授信；新增货车依据边际运力收益与成本的关系决策。
+
+教师依据当前公开行情生成核心 `Command`，再通过 `encode_command` 转换成六元组 `ActionHead`。教师标签与学生策略使用完全相同的动作空间和数量档位。
+
+#### 行为克隆初始化
+
+初始阶段在固定种子上运行贪心教师，保存不可变的三元组：
+
+```text
+(observation, action_mask, expert_action)
+```
+
+行为克隆把教师动作的联合负 log probability 作为监督损失，并使用同一动作掩码重新计算条件动作头。优化参数包括策略分支和共享状态编码器；价值分支在 PPO 阶段依据环境奖励学习。训练指标包括 BC loss、六元组动作一致率、动作类型一致率和梯度范数。
+
+#### DAgger 状态纠偏
+
+BC 数据来自教师访问的状态。DAgger 进一步让当前学生策略访问状态，并在每个访问状态上重新查询贪心教师：
+
+```text
+学生访问状态 -> 教师给出标签 -> 聚合到数据集 -> 重新 BC
+```
+
+收集轨迹时，`beta` 控制使用教师动作还是学生动作推进环境。配置从 `beta = 0.5` 逐步降到 `beta = 0`，学生访问的状态分布随训练逐步占据主导；每个状态的监督标签均来自教师。每轮 DAgger 结束后使用累计数据集重新进行若干轮 BC，并在固定种子上评估。
+
+#### PPO 微调
+
+DAgger 完成后，训练器复用已经初始化的 Actor-Critic 参数继续 PPO。PPO 阶段的优化目标由 `reward_v1`、GAE 和 PPO 裁剪目标组成，教师动作不参与 PPO 损失；策略变化由 PPO 的 KL 目标进行调节。教师信息通过初始化参数和聚合数据进入训练，最终策略由游戏长期回报塑造。
+
+该流程的监测指标包括示范数据集规模、`beta`、学习者与教师动作一致率、BC 损失、PPO 指标和每轮评估结果。
 
 ```powershell
-tensorboard --logdir runs/tensorboard
+python -m trade_game dagger-ppo `
+  --config trade_game/learning/configs/dagger_ppo_v1_1m.toml
 ```
+
+`dagger-ppo` 同样支持 `--updates`、`--rollout-steps`、`--checkpoint` 和 `--tensorboard-logdir` 覆盖配置，也可用 `--expert-episodes`、`--dagger-rounds` 缩小教师数据与纠偏轮数，用于快速验证。
+
+### 贪心经营基准
+
+贪心基准使用当前公开行情枚举采购、运输和套现计划，并在有可完成盈利计划时使用可用授信；新增货车必须能够覆盖剩余人工成本。它以当前信息计算经营计划，用于衡量经济规则下的可实现收益水平：
+
+```powershell
+python -m trade_game greedy --episodes 16 --start-seed 101
+python -m trade_game greedy --seed 173 --trace
+```
+
+### 配置目录
+
+仓库同时提供原始游戏规则与 14 天城市-商品采购恢复期规则下的训练配置：
+
+| 配置 | 规则版本 | 采样方式 | 训练规模 | 调度策略 |
+|---|---|---|---:|---|
+| `ppo_default.toml` | 原始规则 | 单环境 | 默认 100 updates | 固定 PPO 参数 |
+| `ppo_v2.toml` | 原始规则 | 8 环境并行 | 约 100k 步 | 学习率、熵和 KL 渐进调度 |
+| `ppo_v2_1m.toml` | 原始规则 | 8 环境并行 | 约 1M 步 | 学习率、熵和 KL 渐进调度 |
+| `ppo_v2_cooldown14_1m.toml` | 14 天城市-商品采购恢复期 | 8 环境并行 | 约 1M 步 | 采购恢复期与渐进调度 |
+| `dagger_ppo_v1_1m.toml` | 14 天城市-商品采购恢复期 | 贪心教师、两轮 DAgger、8 环境 PPO | 999,936 步 | BC 初始化与学习率、熵、KL 渐进调度 |
+
+训练中会将教师数据规模、行为克隆损失与动作一致率写入 `imitation/*`，并沿用 PPO 的收益、价值损失、KL、裁剪比例、动作分布和训练集种子评估指标。开发者可以按训练配置查看各阶段的资产曲线与优化指标。
+
+## 相关文档
+
+- [四版训练方案与结果](docs/experiment_log.md)
+- [智能体结构总览](docs/architecture/README.md)
+- [状态编码器](docs/architecture/state-encoder.md)
+- [Actor-Critic 网络](docs/architecture/actor-critic.md)
+- [PPO 训练流程](docs/architecture/ppo-training.md)
+
+## License
+
+本项目使用仓库中的 [LICENSE](LICENSE) 所规定的许可证。
