@@ -10,8 +10,15 @@ TradeGame-RL 是一个以贸易经营为核心的回合制游戏，也是一个�
 - 面向训练的动作协议、状态观测、动作掩码与环境接口；
 - 基于 PyTorch 的实体编码、Actor-Critic、PPO、贪心基准、行为克隆和 DAgger 实现。
 
+## 训练表现
+
+第三版 DAgger + PPO 在 14 天城市-商品采购恢复期规则下完成约 100 万环境步训练。下图记录了 rollout 奖励、每局终局资产，以及固定训练集种子上的平均和中位数终局资产；最终模型在 16 个测试集种子上取得 2,044,307 平均终局资产和 1,996,818 中位数终局资产。
+
+![第三版 DAgger + PPO 训练概览](docs/figures/dagger_ppo_v1_overview.png)
+
 ## 目录
 
+- [训练表现](#训练表现)
 - [快速开始](#快速开始)
 - [项目结构](#项目结构)
 - [游戏核心](#游戏核心)
@@ -183,11 +190,12 @@ CSV 提供城市、商品和路线等实体记录，TOML 提供游戏规则数�
 `AgentEnvironment` 提供训练算法需要的 `reset` 和 `step` 接口：
 
 ```python
-from trade_game.agent import AgentEnvironment
+from trade_game.agent import ActionHead, AgentEnvironment
 
 environment = AgentEnvironment()
 start = environment.reset(seed=7)
-transition = environment.step(action_head)
+action = ActionHead(action_index=7)  # NEXT_DAY
+transition = environment.step(action)
 ```
 
 每次转移包含下一状态观测、下一动作掩码、奖励、实际经过天数、终局标记和资产统计。环境内部始终通过 `GameSession.dispatch` 执行动作。
