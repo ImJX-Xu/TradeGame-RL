@@ -10,7 +10,7 @@ TradeGame-RL 是一个以贸易经营为核心的回合制游戏，也是一个�
 
 - 面向玩家的图形与终端经营游戏；
 - 面向训练的动作协议、状态观测、动作掩码与环境接口；
-- 基于 PyTorch 的实体编码、Actor-Critic、PPO、贪心基准、行为克隆和 DAgger 实现。
+- 基于 PyTorch 的事实矩阵编码、Actor-Critic、PPO、贪心基准、行为克隆和 DAgger 实现。
 
 ## 训练表现
 
@@ -88,7 +88,7 @@ trade_game/
 │   └── rewards.py                reward_v1
 ├── learning/                     原生 PyTorch 学习层
 │   ├── batching.py               观测、掩码和动作的批处理
-│   ├── encoder.py                实体嵌入与目标注意力编码器
+│   ├── encoder.py                事实矩阵与经营候选编码器
 │   ├── policy.py                 条件动作策略与价值网络
 │   ├── rollout.py                轨迹缓存和 GAE
 │   ├── ppo.py                    PPO 采样与参数更新
@@ -204,49 +204,38 @@ transition = environment.step(action)
 
 ## 状态观测与编码
 
-Agent 观测由全局经营状态和多个实体集合组成。游戏目录包含 14 个城市和 18 个商品，市场、路线与货物批次分别保持各自的实体维度。
+Agent 观测由公开经营事实构成，并按其天然关系保留为矩阵：全局经营状态 `G`、当前位置标记 `X`、城市银行属性 `C`、商品特性 `P`、市场报价历史 `M`、路线与官方报价 `R`，以及库存批次 `L`。商品、城市和运输方式的目录索引只用于定位矩阵行，不作为神经网络数值输入。
 
-市场行情组织为城市与商品组成的报价矩阵，每个市场单元保留四个离散时间点：
+市场行情使用城市 x 商品的公开参考售价矩阵；每个单元保留的历史点由训练配置定义。默认配置采样第 6、4、2 天前和当天：
 
 ```text
 [city, product, D-6 / D-4 / D-2 / D]
 ```
 
-价格使用相对于商品基础采购价格的比例特征。城市、商品、区域、商品类别和运输方式通过可学习 embedding 表示；城市能力、商品属性、路线距离、市场可采购性、采购恢复比例、库存数量和货物年龄等信息作为数值特征输入。
+金额相对于初始资金做对数缩放，比例、布尔值和进度保持线性数值。路线矩阵同时给出普通与加急运输的官方运费、时长、车辆耐久损耗和最短经济距离；库存矩阵保留商品、真实产地、数量、剩余保质期与 FIFO 次序。批处理阶段只为库存批次补齐，并用 `cargo_valid` 标记真实批次。
 
-货物批次具有动态长度。批处理阶段以当前批次的最大批次数补齐，并使用 `cargo_valid` 标记真实批次。市场报价、路线和货物批次分别形成实体 token；全局经营状态生成查询向量，目标注意力据此汇聚当前最相关的市场、路线和库存信息，最终融合为固定维度状态向量。
-
-编码器默认配置为：
+编码器先将事实行投影到统一的 64 维空间，再在网络内部组合采购候选 `[商品, 目的地, 运输方式]` 和库存候选 `[批次, 目的地, 运输方式]`。候选行按商品、城市和运输方案汇聚为动作条件向量，最后与全局经营状态融合为 128 维状态向量。利润、货损和售价溢价等经营结论不预先计算为特征。
 
 | 参数 | 数值 |
 |---|---:|
-| `embedding_dim` | 16 |
-| `entity_dim` | 64 |
+| `row_dim` | 64 |
 | `state_dim` | 128 |
 | `hidden_dim` | 128 |
 | `dropout` | 0 |
-
-![状态编码器](docs/architecture/state-encoder.png)
 
 完整结构说明见 [状态编码器文档](docs/architecture/state-encoder.md)。
 
 ## Actor-Critic 网络
 
-Actor-Critic 共享状态编码器，并在状态向量上构造策略和价值分支。
-
-Actor 的条件动作结构为：
+Actor-Critic 共享状态编码器。策略网络直接比较商品、城市、运输方式与加急方案的候选向量，价值网络从 128 维全局状态向量输出 `V(s)`。
 
 - 动作类型头输出 8 类核心操作。
-- BUY 与 SELL 使用当前城市市场 token 选择商品，再选择数量档位。
-- TRAVEL 使用路线 token 选择城市、运输方式和加急选项。
-- BORROW、REPAY 和 BUY_TRUCK 使用动作类型 embedding 产生各自的数量分布。
+- BUY 与 SELL 对商品候选评分，再选择数量档位。
+- TRAVEL 依次选择目的城市、运输方式和普通或加急方案。
+- BORROW、REPAY 和 BUY_TRUCK 根据全局状态与数量档位语义产生各自分布。
 - REPAIR_TRUCK 与 NEXT_DAY 直接输出无参数命令。
 
-采样得到的各条件头 log probability 按实际动作路径相加，形成六元组动作的联合 log probability。Critic 使用共享状态向量输出全局状态价值 `V(s)`。
-
-![Actor-Critic 网络](docs/architecture/actor-critic.png)
-
-详见 [Actor-Critic 文档](docs/architecture/actor-critic.md)。
+采样得到的各条件头 log probability 按实际动作路径相加，形成六元组动作的联合 log probability。详见 [Actor-Critic 文档](docs/architecture/actor-critic.md)。
 
 ## 奖励与 PPO
 

@@ -1,58 +1,51 @@
 # Actor-Critic 条件动作网络
 
-`ActorCritic` 共享一个 `StateEncoder`。策略分支会计算所有条件 logits；只有 `sample` 与 `evaluate_actions` 根据 `ActionMaskBatch` 选择和评估当前命令所需的动作头。`B` 表示 batch size。
+`ActorCritic` 共享一个 `StateEncoder`。编码器输出全局状态向量和按商品、城市、运输方案组织的候选向量；策略网络直接对这些候选行评分，价值网络只读取全局状态向量。
 
 ```mermaid
 flowchart TB
-    classDef input fill:#EAF8F2,stroke:#16805C,stroke-width:1.5px,color:#173B2E
-    classDef network fill:#FFF7E6,stroke:#D97706,stroke-width:1.5px,color:#451A03
-    classDef decision fill:#F4EDFF,stroke:#7C3AED,stroke-width:1.5px,color:#2E1065
-    classDef output fill:#FFF1E8,stroke:#EA580C,stroke-width:1.5px,color:#431407
+    encoding["StateEncoding<br/>state [B,128]<br/>商品/路线候选 [B,...,64]"]
+    value["价值头<br/>128 -> 128 -> 1"]
+    action["操作类型头<br/>128 -> 128 -> 8"]
+    product["买入 / 卖出商品头<br/>state + 商品候选 -> [B, 商品]"]
+    quantity["数量头<br/>state + 商品候选 + 数量语义 -> [B, 商品, 21]"]
+    travel["旅行头<br/>state + 城市 / 运输 / 加急候选<br/>-> 城市、运输方式、加急"]
+    finance["融资与购车数量头<br/>state + 数量语义 -> [B, 21]"]
+    masks["ActionMaskBatch<br/>合法操作与参数范围"]
+    sample["条件采样与联合概率<br/>ActionBatch [B,6]"]
+    command["ActionHead -> 核心 Command"]
 
-    state_input["state [B,128]"]:::input
-    market_input["market_tokens [B,14,18,64]"]:::input
-    route_input["route_tokens [B,14,2,64]"]:::input
-    mask["ActionMaskBatch<br/>只在采样和重放时屏蔽非法类别"]:::input
-
-    subgraph actor_critic["ActorCritic：共享 StateEncoder 的策略与价值网络"]
-        direction LR
-        value["Value Head<br/>128 -> 128 -> 1<br/>V(s) [B]"]:::network
-        action_type["动作类型头<br/>128 -> 128 -> 8"]:::network
-        trade["交易分支<br/>提取当前城市市场 token [B,18,64]<br/>两组商品 Query-Score：买入/卖出 [B,18]<br/>state + 商品 token：两组数量 logits [B,18,21]"]:::network
-        travel["旅行分支<br/>路线城市 token = mean(route_tokens, 运输方式)<br/>城市 logits [B,14]；运输方式 logits [B,14,2]<br/>state + 路线 token：加急 logits [B,14,2,2]"]:::network
-        finance["融资分支<br/>借款/还款/购车动作 Embedding：3 x 64<br/>state + 动作 embedding：3 组数量 logits [B,21]"]:::network
-        fixed_actions["维修车辆、推进日期<br/>无条件参数头"]:::network
-    end
-    state_input --> value
-    state_input --> action_type
-    market_input --> trade
-    state_input --> trade
-    route_input --> travel
-    state_input --> travel
-    state_input --> finance
-    action_type --> fixed_actions
-
-    subgraph decision["条件采样、联合概率与动作解码"]
-        direction LR
-        select_action["Masked Categorical<br/>主动作与后续条件头均读取对应掩码"]:::decision
-        trade_path["BUY/SELL<br/>商品 -> 数量"]:::decision
-        travel_path["TRAVEL<br/>城市 -> 运输方式 -> 加急"]:::decision
-        finance_path["BORROW/REPAY/BUY_TRUCK<br/>数量"]:::decision
-        no_param_path["REPAIR_TRUCK/NEXT_DAY<br/>无参数"]:::decision
-        action_batch["ActionBatch [B,6]<br/>action, product, city, transport, quantity, fast"]:::output
-        joint["联合 log_prob / entropy<br/>按 ActionBatch 只累加当前动作经过的头"]:::output
-        decoder["单个 ActionBatch 样本 -> ActionHead<br/>ActionDecoder -> 核心 Command"]:::output
-        select_action --> trade_path --> action_batch
-        select_action --> travel_path --> action_batch
-        select_action --> finance_path --> action_batch
-        select_action --> no_param_path --> action_batch
-        action_batch --> joint
-        action_batch --> decoder
-    end
-    mask --> select_action
-    action_type --> select_action
-    trade --> trade_path
-    travel --> travel_path
-    finance --> finance_path
-    fixed_actions --> no_param_path
+    encoding --> value
+    encoding --> action
+    encoding --> product
+    encoding --> quantity
+    encoding --> travel
+    encoding --> finance
+    action --> sample
+    product --> sample
+    quantity --> sample
+    travel --> sample
+    finance --> sample
+    masks --> sample
+    sample --> command
 ```
+
+动作协议为：
+
+```text
+(action_index, product_index, city_index,
+ transport_index, quantity_index, fast_index)
+```
+
+策略首先在八类核心操作中采样：买入、卖出、旅行、借款、还款、修车、购车和推进日期。随后只读取被选操作所需的条件头：
+
+| 操作 | 条件路径 |
+|---|---|
+| `BUY` / `SELL` | 商品 -> 数量档位 |
+| `TRAVEL` | 目的城市 -> 运输方式 -> 普通或加急 |
+| `BORROW` / `REPAY` / `BUY_TRUCK` | 数量档位 |
+| `REPAIR_TRUCK` / `NEXT_DAY` | 无附加参数 |
+
+21 个数量档位以其公开含义输入数量头：一个单位，或可执行上限的 5% 到 100%。商品、城市和运输方式索引只选择候选行；数量档位没有可学习嵌入。
+
+采样和 PPO 重放时，`ActionMaskBatch` 同时作用于操作类型及其条件头。当前动作路径经过的各头对数概率相加，得到完整六元组的联合 `log_prob`；熵也按同一路径计算。`ActionDecoder` 将采样结果转换为游戏核心的 `Command`，再由 `GameSession.dispatch` 执行。

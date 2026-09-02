@@ -1,74 +1,44 @@
 # 智能体状态编码器
 
-下图对应当前 `ppo_default.toml` 的网络尺寸：`embedding_dim=16`、`entity_dim=64`、`state_dim=128`、`hidden_dim=128`。`B` 表示 batch size，`L` 表示当前 batch 中补齐后的货物批次数。图中的 `a -> b -> c` 是 `_FeatureEncoder` 的输入、隐藏层和输出维度；虚线表示将已有实体 token 加到对象 token，不再重复经过 MLP。
+`StateEncoder` 将游戏公开状态保留为有明确轴含义的事实矩阵，再在网络内部组合商品、城市、路线和库存关系。城市、商品和运输方式的目录索引只用于定位矩阵行，不作为数值特征或可学习的嵌入输入。
+
+默认网络尺寸由训练配置指定：`row_dim = 64`、`state_dim = 128`、`hidden_dim = 128`。市场历史采样点由 TOML 的 `[observation].market_history_offsets` 定义；默认训练配置使用第 6、4、2 天前和当天。
+
+## 观测矩阵
+
+| 名称 | 形状 | 内容 |
+|---|---|---|
+| `G` | `[8]` | 经营进度、现金、债务、可用授信、车辆数、总运力、空余运力和车况 |
+| `X` | `[城市]` | 当前所在城市的 one-hot 标记 |
+| `C` | `[城市, 1]` | 城市是否提供银行服务 |
+| `P` | `[商品, 6]` | 基础进货价、利润率、易腐属性、保质期、老化强度和运输损耗率 |
+| `M` | `[城市, 商品, h + 2]` | 公开参考售价历史、产地采购资格和采购冷却进度 |
+| `R` | `[起点, 终点, 运输方式, 6]` | 普通/加急官方运费与时长、车辆耐久损耗和最短经济距离；不可达路线另以布尔矩阵标记 |
+| `L` | `[商品, 真实产地, 批次, 3]` | 当前库存的数量、剩余保质期与 FIFO 次序 |
+
+货币数值以初始资金为尺度后使用 `log` 或 `log1p` 压缩；比例、布尔值、进度和天数比例保持线性数值。库存批次在组成批次时补齐，`cargo_valid` 仅标记真实批次。
+
+## 编码过程
 
 ```mermaid
 flowchart TB
-    classDef source fill:#EAF8F2,stroke:#16805C,stroke-width:1.5px,color:#173B2E
-    classDef encoder fill:#EAF1FF,stroke:#2563EB,stroke-width:1.5px,color:#172554
-    classDef token fill:#EEF2FF,stroke:#4F46E5,stroke-width:1.5px,color:#1E1B4B
-    classDef pool fill:#F4EDFF,stroke:#7C3AED,stroke-width:1.5px,color:#2E1065
-    classDef output fill:#FFF1E8,stroke:#EA580C,stroke-width:1.5px,color:#431407
+    facts["G / X / C / P / M / R / L<br/>公开经营事实矩阵"]
+    rows["行编码器<br/>数值特征 -> 64 维行向量"]
+    relations["候选关系组合<br/>采购: 商品 x 目的地 x 运输<br/>库存: 批次 x 目的地 x 运输"]
+    pooling["按商品、城市、运输方案汇聚<br/>有效行均值 + 最大值"]
+    tokens["商品候选 / 城市候选 / 运输候选<br/>各 64 维"]
+    state["全局状态向量<br/>128 维"]
 
-    subgraph directory["1. 实体目录与经营状态"]
-        direction LR
-        city_input["城市 ID、区域 ID、4 项属性<br/>[B,14]；[B,14]；[B,14,4]"]:::source
-        city_encoder["城市/区域 Embedding：16 + 16<br/>拼接属性：36 -> 128 -> 64"]:::encoder
-        city_tokens["city_tokens [B,14,64]"]:::token
-        product_input["商品 ID、类别 ID、5 项属性<br/>[B,18]；[B,18]；[B,18,5]"]:::source
-        product_encoder["商品/类别 Embedding：16 + 16<br/>拼接属性：37 -> 128 -> 64"]:::encoder
-        product_tokens["product_tokens [B,18,64]"]:::token
-        global_input["11 项全局特征、当前城市 ID<br/>[B,11]；[B]"]:::source
-        global_encoder["提取当前城市 token 并拼接<br/>75 -> 128 -> 64"]:::encoder
-        global_context["global_context [B,64]"]:::token
-        city_input --> city_encoder --> city_tokens
-        product_input --> product_encoder --> product_tokens
-        global_input --> global_encoder --> global_context
-        city_tokens -->|按当前城市 ID 提取| global_encoder
-    end
-
-    subgraph collections["2. 三类动态对象：加和组成对象 token"]
-        direction LR
-        market_input["四日售价、历史有效位、可采购位、采购恢复比例<br/>[B,14,18,4]；[B,4]；[B,14,18]；[B,14,18]"]:::source
-        market_encoder["10 项数值特征<br/>10 -> 128 -> 64"]:::encoder
-        market_tokens["market_tokens<br/>城市 token + 商品 token + 行情编码<br/>[B,14,18,64]"]:::token
-        route_input["6 项路线属性、可达位<br/>[B,14,2,6]；[B,14,2]"]:::source
-        route_encoder["路线：7 -> 128 -> 64<br/>运输方式 Embedding：16 -> 128 -> 64"]:::encoder
-        route_tokens["route_tokens<br/>城市 token + 运输方式 token + 路线编码<br/>[B,14,2,64]"]:::token
-        cargo_input["货物商品 ID、产地 ID、6 项属性、有效位<br/>[B,L]；[B,L]；[B,L,6]；[B,L]"]:::source
-        cargo_encoder["货物批次：6 -> 128 -> 64"]:::encoder
-        cargo_tokens["cargo_tokens<br/>商品 token + 产地城市 token + 货物编码<br/>[B,L,64]"]:::token
-        market_input --> market_encoder --> market_tokens
-        route_input --> route_encoder --> route_tokens
-        cargo_input --> cargo_encoder --> cargo_tokens
-    end
-    city_tokens -. 城市 token .-> market_tokens
-    product_tokens -. 商品 token .-> market_tokens
-    city_tokens -. 城市 token .-> route_tokens
-    city_tokens -. 产地城市 token .-> cargo_tokens
-    product_tokens -. 商品 token .-> cargo_tokens
-
-    query["Query：global_context [B,64]"]:::token
-    global_context --> query
-
-    subgraph attention["3. TargetAttentionPool：依据经营状态汇聚对象集合"]
-        direction LR
-        market_pool["市场：252 个 token<br/>无掩码<br/>market_context [B,64]"]:::pool
-        route_pool["路线：28 个 token<br/>route_available 掩码<br/>route_context [B,64]"]:::pool
-        cargo_pool["货物：L 个 token<br/>cargo_valid 掩码<br/>cargo_context [B,64]"]:::pool
-    end
-    query --> market_pool
-    market_tokens -->|展平| market_pool
-    query --> route_pool
-    route_tokens -->|展平| route_pool
-    query --> cargo_pool
-    cargo_tokens --> cargo_pool
-
-    fusion["拼接 global、market、route、cargo：4 x 64 = 256<br/>FeatureEncoder：256 -> 128 -> 128"]:::encoder
-    state["StateEncoding<br/>state [B,128]<br/>同时保留 market_tokens、route_tokens<br/>与三组注意力权重"]:::output
-    global_context --> fusion
-    market_pool --> fusion
-    route_pool --> fusion
-    cargo_pool --> fusion
-    fusion --> state
+    facts --> rows --> relations --> pooling --> tokens
+    rows --> pooling
+    tokens --> state
 ```
+
+1. `G`、`C`、`P`、`M`、`R` 与 `L` 的每一行先通过独立 MLP 投影为 64 维向量。`X` 从城市行中选出当前位置，并与全局经营状态融合。
+2. 采购候选将商品属性、当前市场、目标市场和从当前城市出发的路线组合为 `[商品, 目的地, 运输方式]` 行。网络据此形成每个商品和每个运输方案的采购上下文。
+3. 库存候选以每个批次的商品和真实产地为轴，读取对应的目标市场和产地到目标地路线。它保留批次的保质期与 FIFO 信息，并形成商品和路线的库存上下文。
+4. 市场、商品、路线与库存上下文分别沿其候选轴做有效行的均值/最大值汇聚；这些上下文再与全局经营状态融合为 128 维 `state`。
+
+上述组合只使用游戏已经公开的报价、路线、库存和规则属性。售价距离溢价、预计货损、预计利润等经营结论不作为输入特征，而由候选关系和策略网络从原始事实中学习。
+
+`StateEncoding` 同时输出 `state`、`product_tokens`、`route_city_tokens`、`route_mode_tokens` 和 `route_option_tokens`。策略头据此直接比较商品、目的地、运输方式和加急方案，无需将整个状态矩阵展平。
