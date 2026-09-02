@@ -9,6 +9,9 @@ tensorboard_flush_interval = 10
 checkpoint_path = "runs/ppo_v2_parallel_100k/ppo_v2.pt"
 tensorboard_log_dir = "runs/ppo_v2_parallel_100k/tensorboard"
 
+[observation]
+market_history_offsets = [6, 4, 2, 0]
+
 [ppo]
 gamma = 0.995
 gae_lambda = 0.95
@@ -28,8 +31,7 @@ initial_target_kl = 0.01
 normalize_advantages = true
 
 [encoder]
-embedding_dim = 16
-entity_dim = 64
+row_dim = 64
 state_dim = 128
 hidden_dim = 128
 dropout = 0.0

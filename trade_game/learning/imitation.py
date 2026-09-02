@@ -19,6 +19,7 @@ from trade_game.agent import (
     ActionMask,
     AgentEnvironment,
     AgentObservation,
+    ObservationConfig,
     encode_command,
 )
 from trade_game.analysis import GreedyPolicy
@@ -152,16 +153,22 @@ def load_dagger_ppo_config(path: Path) -> DAggerPPOTrainingConfig:
     training_values = dict(document.get("training", {}))
     ppo_values = dict(document.get("ppo", {}))
     encoder_values = dict(document.get("encoder", {}))
+    observation_values = dict(document.get("observation", {}))
     if "checkpoint_path" in training_values:
         training_values["checkpoint_path"] = Path(training_values["checkpoint_path"])
     if "tensorboard_log_dir" in training_values:
         training_values["tensorboard_log_dir"] = Path(training_values["tensorboard_log_dir"])
     if "evaluation_seeds" in training_values:
         training_values["evaluation_seeds"] = tuple(training_values["evaluation_seeds"])
+    if "market_history_offsets" in observation_values:
+        observation_values["market_history_offsets"] = tuple(
+            observation_values["market_history_offsets"]
+        )
     ppo_training = PPOTrainingConfig(
         **training_values,
         ppo=PPOConfig(**ppo_values),
         encoder=StateEncoderConfig(**encoder_values),
+        observation=ObservationConfig(**observation_values),
     )
     return DAggerPPOTrainingConfig(
         ppo=ppo_training,
@@ -265,7 +272,7 @@ def train_dagger_ppo(config: DAggerPPOTrainingConfig) -> DAggerPPOTrainingResult
     if config.dagger.rounds < 0 or config.dagger.episodes_per_round <= 0:
         raise ValueError("DAgger rounds 和 episodes_per_round 不合法")
     torch.manual_seed(ppo_config.seed)
-    environment = AgentEnvironment()
+    environment = AgentEnvironment(observation_config=ppo_config.observation)
     start = environment.reset(seed=ppo_config.seed)
     model = ActorCritic(
         ObservationSpec.from_observation(start.observation),
@@ -291,6 +298,7 @@ def train_dagger_ppo(config: DAggerPPOTrainingConfig) -> DAggerPPOTrainingResult
             beta=1.0,
             device=ppo_config.device,
             max_decisions=config.dagger.max_decisions_per_episode,
+            observation_config=ppo_config.observation,
         )
         _log_collection(writer, 0, dataset_size=len(dataset), collection=expert_collection)
         initial_bc = train_behavior_cloning(
@@ -328,6 +336,7 @@ def train_dagger_ppo(config: DAggerPPOTrainingConfig) -> DAggerPPOTrainingResult
                 beta=beta,
                 device=ppo_config.device,
                 max_decisions=config.dagger.max_decisions_per_episode,
+                observation_config=ppo_config.observation,
             )
             bc_metrics = train_behavior_cloning(
                 model,
@@ -388,6 +397,7 @@ def _collect_examples(
     beta: float,
     device: torch.device | str,
     max_decisions: int,
+    observation_config: ObservationConfig,
 ) -> _CollectionResult:
     if not 0.0 <= beta <= 1.0:
         raise ValueError("DAgger beta 必须位于 [0, 1]")
@@ -402,7 +412,7 @@ def _collect_examples(
         model.eval()
     try:
         for seed in seeds:
-            environment = AgentEnvironment()
+            environment = AgentEnvironment(observation_config=observation_config)
             start = environment.reset(seed=seed)
             observation = start.observation
             action_mask = start.action_mask

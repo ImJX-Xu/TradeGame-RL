@@ -6,6 +6,9 @@ evaluation_interval = 10
 evaluation_seeds = [101, 103, 107, 109, 113]
 tensorboard_log_dir = "runs/tensorboard"
 
+[observation]
+market_history_offsets = [6, 4, 2, 0]
+
 [ppo]
 gamma = 0.995
 gae_lambda = 0.95
@@ -22,8 +25,7 @@ target_kl = 0.03
 normalize_advantages = true
 
 [encoder]
-embedding_dim = 16
-entity_dim = 64
+row_dim = 64
 state_dim = 128
 hidden_dim = 128
 dropout = 0.0

@@ -1,4 +1,4 @@
-"""将结构化智能体观测整理为 PyTorch 批量张量。"""
+"""将智能体事实矩阵堆叠为 PyTorch 训练批次。"""
 
 from __future__ import annotations
 
@@ -9,28 +9,25 @@ import torch
 from torch import Tensor
 
 from trade_game.agent import (
-    CARGO_FEATURE_NAMES,
+    CARGO_LOT_FEATURE_NAMES,
     CITY_FEATURE_NAMES,
     GLOBAL_FEATURE_NAMES,
-    MARKET_HISTORY_OFFSETS,
-    PRODUCT_CATEGORY_NAMES,
     PRODUCT_FEATURE_NAMES,
     ROUTE_FEATURE_NAMES,
     ActionMask,
     AgentObservation,
+    market_feature_names,
 )
 
 
 class ObservationBatchError(ValueError):
-    """观测批次与固定观测协议不一致时抛出。"""
+    """观测与已创建模型的矩阵协议不一致。"""
 
 
 @dataclass(frozen=True, slots=True)
 class ObservationSpec:
-    """训练数据、网络配置与检查点共享的固定观测规格。"""
+    """模型、rollout 和检查点共享的事实矩阵规格。"""
 
-    region_names: tuple[str, ...]
-    category_names: tuple[str, ...]
     market_history_offsets: tuple[int, ...]
     city_count: int
     product_count: int
@@ -38,94 +35,93 @@ class ObservationSpec:
     global_feature_count: int
     city_feature_count: int
     product_feature_count: int
+    market_feature_count: int
     route_feature_count: int
-    cargo_feature_count: int
+    cargo_lot_feature_count: int
 
     @classmethod
     def from_observation(cls, observation: AgentObservation) -> "ObservationSpec":
-        """从一个合法观测中固化当前目录与特征维度。"""
-
         return cls(
-            region_names=observation.region_names,
-            category_names=PRODUCT_CATEGORY_NAMES,
-            market_history_offsets=MARKET_HISTORY_OFFSETS,
-            city_count=len(observation.cities),
-            product_count=len(observation.products),
-            transport_count=len(observation.routes[0]),
+            market_history_offsets=observation.market_history_offsets,
+            city_count=len(observation.city_features),
+            product_count=len(observation.product_features),
+            transport_count=len(observation.route_features[0][0]),
             global_feature_count=len(GLOBAL_FEATURE_NAMES),
             city_feature_count=len(CITY_FEATURE_NAMES),
             product_feature_count=len(PRODUCT_FEATURE_NAMES),
+            market_feature_count=len(market_feature_names(observation.market_history_offsets)),
             route_feature_count=len(ROUTE_FEATURE_NAMES),
-            cargo_feature_count=len(CARGO_FEATURE_NAMES),
+            cargo_lot_feature_count=len(CARGO_LOT_FEATURE_NAMES),
         )
 
     def validate(self, observation: AgentObservation) -> None:
-        """校验一个观测仍遵循创建模型时使用的协议。"""
-
-        if observation.region_names != self.region_names:
-            raise ObservationBatchError("观测区域词表与批处理规格不一致")
+        if observation.market_history_offsets != self.market_history_offsets:
+            raise ObservationBatchError("市场历史采样配置与观测规格不一致")
         if (
-            self.category_names != PRODUCT_CATEGORY_NAMES
-            or self.market_history_offsets != MARKET_HISTORY_OFFSETS
+            len(observation.global_state.features) != self.global_feature_count
+            or len(observation.current_city_flags) != self.city_count
+            or len(observation.city_features) != self.city_count
+            or len(observation.product_features) != self.product_count
+            or len(observation.market_features) != self.city_count
+            or len(observation.route_features) != self.city_count
+            or len(observation.route_available) != self.city_count
+            or len(observation.cargo_lot_table) != self.product_count
         ):
-            raise ObservationBatchError("批处理规格与当前观测协议不一致")
-        if (
-            len(observation.cities) != self.city_count
-            or len(observation.products) != self.product_count
-            or len(observation.market_quotes) != self.city_count
-            or len(observation.routes) != self.city_count
-        ):
-            raise ObservationBatchError("观测实体数量与批处理规格不一致")
-        if len(observation.global_state.features) != self.global_feature_count:
-            raise ObservationBatchError("全局特征维度与批处理规格不一致")
-        if len(observation.market_history_valid) != len(self.market_history_offsets):
-            raise ObservationBatchError("市场时间点与批处理规格不一致")
-        for city, market_row, route_row in zip(
-            observation.cities,
-            observation.market_quotes,
-            observation.routes,
+            raise ObservationBatchError("观测矩阵尺寸与模型规格不一致")
+        for city_features, market_row, route_origins, route_available in zip(
+            observation.city_features,
+            observation.market_features,
+            observation.route_features,
+            observation.route_available,
             strict=True,
         ):
-            if len(city.features) != self.city_feature_count:
-                raise ObservationBatchError("城市特征维度与批处理规格不一致")
-            if len(market_row) != self.product_count or len(route_row) != self.transport_count:
-                raise ObservationBatchError("市场或路线实体数量与批处理规格不一致")
-            for route in route_row:
-                if len(route.features) != self.route_feature_count:
-                    raise ObservationBatchError("路线特征维度与批处理规格不一致")
-            for quote in market_row:
-                if len(quote.sale_log_history) != len(self.market_history_offsets):
-                    raise ObservationBatchError("市场价格时间维度与批处理规格不一致")
-        for product in observation.products:
-            if len(product.features) != self.product_feature_count:
-                raise ObservationBatchError("商品特征维度与批处理规格不一致")
-        for lot in observation.cargo_lots:
-            if len(lot.features) != self.cargo_feature_count:
-                raise ObservationBatchError("货物批次特征维度与批处理规格不一致")
+            if len(city_features) != self.city_feature_count:
+                raise ObservationBatchError("城市特征维度与模型规格不一致")
+            if len(market_row) != self.product_count:
+                raise ObservationBatchError("市场商品轴与模型规格不一致")
+            if len(route_origins) != self.city_count or len(route_available) != self.city_count:
+                raise ObservationBatchError("路线城市轴与模型规格不一致")
+            for market_cell in market_row:
+                if len(market_cell) != self.market_feature_count:
+                    raise ObservationBatchError("市场特征维度与模型规格不一致")
+            for route_modes, available_modes in zip(route_origins, route_available, strict=True):
+                if len(route_modes) != self.transport_count or len(available_modes) != self.transport_count:
+                    raise ObservationBatchError("路线运输轴与模型规格不一致")
+                for route_features in route_modes:
+                    if len(route_features) != self.route_feature_count:
+                        raise ObservationBatchError("路线特征维度与模型规格不一致")
+        for product_features, origin_rows in zip(
+            observation.product_features, observation.cargo_lot_table, strict=True
+        ):
+            if len(product_features) != self.product_feature_count:
+                raise ObservationBatchError("商品特征维度与模型规格不一致")
+            if len(origin_rows) != self.city_count:
+                raise ObservationBatchError("库存产地轴与模型规格不一致")
+            for lots in origin_rows:
+                for lot in lots:
+                    if len(lot) != self.cargo_lot_feature_count:
+                        raise ObservationBatchError("库存批次特征维度与模型规格不一致")
 
 
 @dataclass(frozen=True, slots=True)
 class ObservationBatch:
-    """可直接传入状态编码网络的批量观测张量。"""
+    """网络输入张量。
+
+    ``cargo_product_axes`` 与 ``cargo_origin_city_axes`` 仅用于从商品、城市和
+    路线矩阵取得对应行，不会传入 MLP 或作为可学习的 ID 特征。
+    """
 
     spec: ObservationSpec
     global_features: Tensor
-    current_city_ids: Tensor
-    city_ids: Tensor
-    city_region_ids: Tensor
+    current_city_flags: Tensor
     city_features: Tensor
-    product_ids: Tensor
-    product_category_ids: Tensor
     product_features: Tensor
-    market_sale_history: Tensor
-    market_can_purchase: Tensor
-    market_purchase_cooldown: Tensor
-    market_history_valid: Tensor
+    market_features: Tensor
     route_available: Tensor
     route_features: Tensor
-    cargo_product_ids: Tensor
-    cargo_origin_city_ids: Tensor
-    cargo_features: Tensor
+    cargo_lot_features: Tensor
+    cargo_product_axes: Tensor
+    cargo_origin_city_axes: Tensor
     cargo_valid: Tensor
 
     @classmethod
@@ -136,8 +132,6 @@ class ObservationBatch:
         spec: ObservationSpec | None = None,
         device: torch.device | str | None = None,
     ) -> "ObservationBatch":
-        """将同一观测协议下的状态快照堆叠为一个 batch。"""
-
         items = tuple(observations)
         if not items:
             raise ObservationBatchError("观测批次不能为空")
@@ -145,149 +139,95 @@ class ObservationBatch:
         for observation in items:
             resolved_spec.validate(observation)
 
+        cargo_entries = tuple(_cargo_entries(observation) for observation in items)
         batch_size = len(items)
-        cargo_count = max(1, max(len(observation.cargo_lots) for observation in items))
+        cargo_count = max(1, max(len(entries) for entries in cargo_entries))
         batch = cls(
             spec=resolved_spec,
             global_features=torch.tensor(
-                [observation.global_state.features for observation in items], dtype=torch.float32
+                [item.global_state.features for item in items], dtype=torch.float32
             ),
-            current_city_ids=torch.tensor(
-                [observation.global_state.current_city_index for observation in items], dtype=torch.long
+            current_city_flags=torch.tensor(
+                [item.current_city_flags for item in items], dtype=torch.float32
             ),
-            city_ids=torch.tensor(
-                [[city.city_index for city in observation.cities] for observation in items], dtype=torch.long
-            ),
-            city_region_ids=torch.tensor(
-                [[city.region_index for city in observation.cities] for observation in items], dtype=torch.long
-            ),
-            city_features=torch.tensor(
-                [[city.features for city in observation.cities] for observation in items], dtype=torch.float32
-            ),
-            product_ids=torch.tensor(
-                [[product.product_index for product in observation.products] for observation in items],
-                dtype=torch.long,
-            ),
-            product_category_ids=torch.tensor(
-                [[product.category_index for product in observation.products] for observation in items],
-                dtype=torch.long,
-            ),
+            city_features=torch.tensor([item.city_features for item in items], dtype=torch.float32),
             product_features=torch.tensor(
-                [[product.features for product in observation.products] for observation in items],
-                dtype=torch.float32,
+                [item.product_features for item in items], dtype=torch.float32
             ),
-            market_sale_history=torch.tensor(
-                [
-                    [[quote.sale_log_history for quote in market_row] for market_row in observation.market_quotes]
-                    for observation in items
-                ],
-                dtype=torch.float32,
-            ),
-            market_can_purchase=torch.tensor(
-                [
-                    [[quote.can_purchase for quote in market_row] for market_row in observation.market_quotes]
-                    for observation in items
-                ],
-                dtype=torch.bool,
-            ),
-            market_purchase_cooldown=torch.tensor(
-                [
-                    [
-                        [quote.purchase_cooldown_fraction for quote in market_row]
-                        for market_row in observation.market_quotes
-                    ]
-                    for observation in items
-                ],
-                dtype=torch.float32,
-            ),
-            market_history_valid=torch.tensor(
-                [observation.market_history_valid for observation in items], dtype=torch.bool
+            market_features=torch.tensor(
+                [item.market_features for item in items], dtype=torch.float32
             ),
             route_available=torch.tensor(
-                [
-                    [[route.available for route in route_row] for route_row in observation.routes]
-                    for observation in items
-                ],
-                dtype=torch.bool,
+                [item.route_available for item in items], dtype=torch.bool
             ),
             route_features=torch.tensor(
-                [
-                    [[route.features for route in route_row] for route_row in observation.routes]
-                    for observation in items
-                ],
-                dtype=torch.float32,
+                [item.route_features for item in items], dtype=torch.float32
             ),
-            cargo_product_ids=torch.zeros((batch_size, cargo_count), dtype=torch.long),
-            cargo_origin_city_ids=torch.zeros((batch_size, cargo_count), dtype=torch.long),
-            cargo_features=torch.zeros(
-                (batch_size, cargo_count, resolved_spec.cargo_feature_count), dtype=torch.float32
+            cargo_lot_features=torch.zeros(
+                (batch_size, cargo_count, resolved_spec.cargo_lot_feature_count), dtype=torch.float32
             ),
+            cargo_product_axes=torch.zeros((batch_size, cargo_count), dtype=torch.long),
+            cargo_origin_city_axes=torch.zeros((batch_size, cargo_count), dtype=torch.long),
             cargo_valid=torch.zeros((batch_size, cargo_count), dtype=torch.bool),
         )
-        for batch_index, observation in enumerate(items):
-            for cargo_index, lot in enumerate(observation.cargo_lots):
-                batch.cargo_product_ids[batch_index, cargo_index] = lot.product_index
-                batch.cargo_origin_city_ids[batch_index, cargo_index] = lot.origin_city_index
-                batch.cargo_features[batch_index, cargo_index] = torch.tensor(
-                    lot.features, dtype=torch.float32
+        for batch_index, entries in enumerate(cargo_entries):
+            for cargo_index, (product_axis, origin_axis, features) in enumerate(entries):
+                batch.cargo_lot_features[batch_index, cargo_index] = torch.tensor(
+                    features, dtype=torch.float32
                 )
+                batch.cargo_product_axes[batch_index, cargo_index] = product_axis
+                batch.cargo_origin_city_axes[batch_index, cargo_index] = origin_axis
                 batch.cargo_valid[batch_index, cargo_index] = True
         return batch if device is None else batch.to(device)
 
     def to(self, device: torch.device | str, *, non_blocking: bool = False) -> "ObservationBatch":
-        """返回迁移到指定设备后的新批次，规格保持在 Python 侧。"""
-
         return replace(
             self,
             global_features=self.global_features.to(device, non_blocking=non_blocking),
-            current_city_ids=self.current_city_ids.to(device, non_blocking=non_blocking),
-            city_ids=self.city_ids.to(device, non_blocking=non_blocking),
-            city_region_ids=self.city_region_ids.to(device, non_blocking=non_blocking),
+            current_city_flags=self.current_city_flags.to(device, non_blocking=non_blocking),
             city_features=self.city_features.to(device, non_blocking=non_blocking),
-            product_ids=self.product_ids.to(device, non_blocking=non_blocking),
-            product_category_ids=self.product_category_ids.to(device, non_blocking=non_blocking),
             product_features=self.product_features.to(device, non_blocking=non_blocking),
-            market_sale_history=self.market_sale_history.to(device, non_blocking=non_blocking),
-            market_can_purchase=self.market_can_purchase.to(device, non_blocking=non_blocking),
-            market_purchase_cooldown=self.market_purchase_cooldown.to(device, non_blocking=non_blocking),
-            market_history_valid=self.market_history_valid.to(device, non_blocking=non_blocking),
+            market_features=self.market_features.to(device, non_blocking=non_blocking),
             route_available=self.route_available.to(device, non_blocking=non_blocking),
             route_features=self.route_features.to(device, non_blocking=non_blocking),
-            cargo_product_ids=self.cargo_product_ids.to(device, non_blocking=non_blocking),
-            cargo_origin_city_ids=self.cargo_origin_city_ids.to(device, non_blocking=non_blocking),
-            cargo_features=self.cargo_features.to(device, non_blocking=non_blocking),
+            cargo_lot_features=self.cargo_lot_features.to(device, non_blocking=non_blocking),
+            cargo_product_axes=self.cargo_product_axes.to(device, non_blocking=non_blocking),
+            cargo_origin_city_axes=self.cargo_origin_city_axes.to(
+                device, non_blocking=non_blocking
+            ),
             cargo_valid=self.cargo_valid.to(device, non_blocking=non_blocking),
         )
 
     def index_select(self, indices: Tensor) -> "ObservationBatch":
-        """浠庡凡鎵归噺鍖栫殑瑙傛祴涓鍙栦竴涓皬鎵规銆?"""
-
         return replace(
             self,
             global_features=self.global_features.index_select(0, indices),
-            current_city_ids=self.current_city_ids.index_select(0, indices),
-            city_ids=self.city_ids.index_select(0, indices),
-            city_region_ids=self.city_region_ids.index_select(0, indices),
+            current_city_flags=self.current_city_flags.index_select(0, indices),
             city_features=self.city_features.index_select(0, indices),
-            product_ids=self.product_ids.index_select(0, indices),
-            product_category_ids=self.product_category_ids.index_select(0, indices),
             product_features=self.product_features.index_select(0, indices),
-            market_sale_history=self.market_sale_history.index_select(0, indices),
-            market_can_purchase=self.market_can_purchase.index_select(0, indices),
-            market_purchase_cooldown=self.market_purchase_cooldown.index_select(0, indices),
-            market_history_valid=self.market_history_valid.index_select(0, indices),
+            market_features=self.market_features.index_select(0, indices),
             route_available=self.route_available.index_select(0, indices),
             route_features=self.route_features.index_select(0, indices),
-            cargo_product_ids=self.cargo_product_ids.index_select(0, indices),
-            cargo_origin_city_ids=self.cargo_origin_city_ids.index_select(0, indices),
-            cargo_features=self.cargo_features.index_select(0, indices),
+            cargo_lot_features=self.cargo_lot_features.index_select(0, indices),
+            cargo_product_axes=self.cargo_product_axes.index_select(0, indices),
+            cargo_origin_city_axes=self.cargo_origin_city_axes.index_select(0, indices),
             cargo_valid=self.cargo_valid.index_select(0, indices),
         )
 
 
+def _cargo_entries(
+    observation: AgentObservation,
+) -> tuple[tuple[int, int, tuple[float, ...]], ...]:
+    entries: list[tuple[int, int, tuple[float, ...]]] = []
+    for product_axis, origin_rows in enumerate(observation.cargo_lot_table):
+        for origin_axis, lots in enumerate(origin_rows):
+            entries.extend((product_axis, origin_axis, features) for features in lots)
+    return tuple(entries)
+
+
 @dataclass(frozen=True, slots=True)
 class ActionMaskBatch:
-    """保持动作掩码层级的批量布尔张量，不混入状态特征。"""
+    """动作掩码保持为核心规则的独立输出。"""
 
     action: Tensor
     buy_product: Tensor
@@ -308,8 +248,6 @@ class ActionMaskBatch:
         *,
         device: torch.device | str | None = None,
     ) -> "ActionMaskBatch":
-        """将同一动作词表下的条件掩码堆叠为批量布尔张量。"""
-
         items = tuple(masks)
         if not items:
             raise ObservationBatchError("动作掩码批次不能为空")
@@ -320,17 +258,21 @@ class ActionMaskBatch:
             buy_quantity=torch.tensor([mask.buy_quantity for mask in items], dtype=torch.bool),
             sell_quantity=torch.tensor([mask.sell_quantity for mask in items], dtype=torch.bool),
             travel_city=torch.tensor([mask.travel_city for mask in items], dtype=torch.bool),
-            travel_transport=torch.tensor([mask.travel_transport for mask in items], dtype=torch.bool),
+            travel_transport=torch.tensor(
+                [mask.travel_transport for mask in items], dtype=torch.bool
+            ),
             travel_fast=torch.tensor([mask.travel_fast for mask in items], dtype=torch.bool),
-            borrow_quantity=torch.tensor([mask.borrow_quantity for mask in items], dtype=torch.bool),
+            borrow_quantity=torch.tensor(
+                [mask.borrow_quantity for mask in items], dtype=torch.bool
+            ),
             repay_quantity=torch.tensor([mask.repay_quantity for mask in items], dtype=torch.bool),
-            buy_truck_quantity=torch.tensor([mask.buy_truck_quantity for mask in items], dtype=torch.bool),
+            buy_truck_quantity=torch.tensor(
+                [mask.buy_truck_quantity for mask in items], dtype=torch.bool
+            ),
         )
         return batch if device is None else batch.to(device)
 
     def to(self, device: torch.device | str, *, non_blocking: bool = False) -> "ActionMaskBatch":
-        """返回迁移到指定设备后的新动作掩码批次。"""
-
         return replace(
             self,
             action=self.action.to(device, non_blocking=non_blocking),
@@ -347,8 +289,6 @@ class ActionMaskBatch:
         )
 
     def index_select(self, indices: Tensor) -> "ActionMaskBatch":
-        """浠庡凡鎵归噺鍖栫殑鎺╃爜涓鍙栦竴涓皬鎵规銆?"""
-
         return replace(
             self,
             action=self.action.index_select(0, indices),

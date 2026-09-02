@@ -8,7 +8,7 @@ import tomllib
 
 import torch
 
-from trade_game.agent import AgentEnvironment
+from trade_game.agent import AgentEnvironment, ObservationConfig
 
 from .batching import ObservationSpec
 from .encoder import StateEncoderConfig
@@ -31,11 +31,11 @@ class PPOTrainingConfig:
     tensorboard_flush_interval: int = 10
     checkpoint_path: Path | None = None
     tensorboard_log_dir: Path | None = Path("runs/tensorboard")
+    observation: ObservationConfig = field(default_factory=ObservationConfig)
     ppo: PPOConfig = field(default_factory=PPOConfig)
     encoder: StateEncoderConfig = field(
         default_factory=lambda: StateEncoderConfig(
-            embedding_dim=16,
-            entity_dim=64,
+            row_dim=64,
             state_dim=128,
             hidden_dim=128,
         )
@@ -68,16 +68,22 @@ def load_training_config(path: Path) -> PPOTrainingConfig:
     training_values = dict(document.get("training", {}))
     ppo_values = dict(document.get("ppo", {}))
     encoder_values = dict(document.get("encoder", {}))
+    observation_values = dict(document.get("observation", {}))
     if "checkpoint_path" in training_values:
         training_values["checkpoint_path"] = Path(training_values["checkpoint_path"])
     if "tensorboard_log_dir" in training_values:
         training_values["tensorboard_log_dir"] = Path(training_values["tensorboard_log_dir"])
     if "evaluation_seeds" in training_values:
         training_values["evaluation_seeds"] = tuple(training_values["evaluation_seeds"])
+    if "market_history_offsets" in observation_values:
+        observation_values["market_history_offsets"] = tuple(
+            observation_values["market_history_offsets"]
+        )
     return PPOTrainingConfig(
         **training_values,
         ppo=PPOConfig(**ppo_values),
         encoder=StateEncoderConfig(**encoder_values),
+        observation=ObservationConfig(**observation_values),
     )
 
 
@@ -91,7 +97,10 @@ def train_ppo(
     if config.environment_count <= 0:
         raise ValueError("训练环境数量必须为正")
     torch.manual_seed(config.seed)
-    environments = tuple(AgentEnvironment() for _ in range(config.environment_count))
+    environments = tuple(
+        AgentEnvironment(observation_config=config.observation)
+        for _ in range(config.environment_count)
+    )
     start = environments[0].reset(seed=config.seed)
     spec = ObservationSpec.from_observation(start.observation)
     model = initial_model if initial_model is not None else ActorCritic(spec, encoder_config=config.encoder)

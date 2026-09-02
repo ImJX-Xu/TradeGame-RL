@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import torch
 
-from trade_game.agent import ActionHead, AgentEnvironment
+from trade_game.agent import ActionHead, AgentEnvironment, ObservationConfig
 from trade_game.core import GameEndReason
 
 from .batching import ActionMaskBatch, ObservationBatch
@@ -58,7 +58,11 @@ def play_policy(
     """以确定性条件策略游玩一局挑战模式，并保留完整动作轨迹。"""
 
     model = model.to(device)
-    environment = AgentEnvironment()
+    environment = AgentEnvironment(
+        observation_config=ObservationConfig(
+            market_history_offsets=model.encoder.spec.market_history_offsets
+        )
+    )
     start = environment.reset(seed=seed)
     observation = start.observation
     action_mask = start.action_mask

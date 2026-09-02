@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from math import sqrt
 from typing import Sequence
 
 import torch
 from torch import Tensor, nn
 from torch.distributions import Categorical
 
-from trade_game.agent import ACTION_TYPES, ActionHead
+from trade_game.agent import ACTION_TYPES, ActionHead, QuantityBin
 from trade_game.core import CommandType
 
 from .batching import ActionMaskBatch, ObservationBatch, ObservationSpec
@@ -214,72 +213,70 @@ class ActionPolicy(nn.Module):
         super().__init__()
         self.spec = spec
         self.state_dim = config.state_dim
-        self.entity_dim = config.entity_dim
+        self.row_dim = config.row_dim
         hidden_dim = config.hidden_dim
-        quantity_count = 21
+        quantity_count = len(QuantityBin)
 
         self.action_head = _FeatureHead(self.state_dim, len(ACTION_TYPES), hidden_dim)
-        self.buy_product_query = _QueryHead(self.state_dim, self.entity_dim, hidden_dim)
-        self.sell_product_query = _QueryHead(self.state_dim, self.entity_dim, hidden_dim)
-        self.travel_city_query = _QueryHead(self.state_dim, self.entity_dim, hidden_dim)
-        self.travel_transport_query = _QueryHead(self.state_dim, self.entity_dim, hidden_dim)
-
-        self.buy_quantity_head = _FeatureHead(
-            self.state_dim + self.entity_dim,
-            quantity_count,
-            hidden_dim,
-        )
-        self.sell_quantity_head = _FeatureHead(
-            self.state_dim + self.entity_dim,
-            quantity_count,
-            hidden_dim,
-        )
-        self.finance_action_embedding = nn.Embedding(3, self.entity_dim)
-        self.finance_quantity_head = _FeatureHead(
-            self.state_dim + self.entity_dim,
-            quantity_count,
-            hidden_dim,
-        )
-        self.travel_fast_head = _FeatureHead(
-            self.state_dim + self.entity_dim,
-            2,
-            hidden_dim,
-        )
+        self.buy_product_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
+        self.sell_product_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
+        self.travel_city_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
+        self.travel_transport_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
+        self.travel_fast_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
+        self.buy_quantity_head = _CandidateHead(self.state_dim + self.row_dim + 2, hidden_dim)
+        self.sell_quantity_head = _CandidateHead(self.state_dim + self.row_dim + 2, hidden_dim)
+        self.borrow_quantity_head = _CandidateHead(self.state_dim + 2, hidden_dim)
+        self.repay_quantity_head = _CandidateHead(self.state_dim + 2, hidden_dim)
+        self.buy_truck_quantity_head = _CandidateHead(self.state_dim + 2, hidden_dim)
+        self.register_buffer("quantity_features", _quantity_features(), persistent=False)
 
     def forward(self, encoding: StateEncoding, batch: ObservationBatch) -> PolicyLogits:
         """计算所有条件分支的 logits，不在此处采样或应用动作掩码。"""
 
+        del batch
         state = encoding.state
-        current_market_tokens = _current_market_tokens(encoding.market_tokens, batch.current_city_ids)
-        route_city_tokens = encoding.route_tokens.mean(dim=2)
-
-        buy_product = _score_entities(
-            self.buy_product_query(state), current_market_tokens, self.entity_dim
+        quantity_count = self.quantity_features.size(0)
+        quantity_features = self.quantity_features.unsqueeze(0).expand(state.size(0), -1, -1)
+        product_quantity_features = torch.cat(
+            (
+                encoding.product_tokens.unsqueeze(2).expand(
+                    -1, -1, quantity_count, -1
+                ),
+                quantity_features.unsqueeze(1).expand(
+                    -1, self.spec.product_count, -1, -1
+                ),
+            ),
+            dim=-1,
         )
-        sell_product = _score_entities(
-            self.sell_product_query(state), current_market_tokens, self.entity_dim
+        buy_product = self.buy_product_head(
+            _join_state_and_candidates(state, encoding.product_tokens)
         )
-        travel_city = _score_entities(
-            self.travel_city_query(state), route_city_tokens, self.entity_dim
+        sell_product = self.sell_product_head(
+            _join_state_and_candidates(state, encoding.product_tokens)
         )
-        travel_transport = _score_routes(
-            self.travel_transport_query(state), encoding.route_tokens, self.entity_dim
+        travel_city = self.travel_city_head(
+            _join_state_and_candidates(state, encoding.route_city_tokens)
         )
-
-        buy_quantity = self.buy_quantity_head(
-            _join_state_and_entities(state, current_market_tokens)
-        )
-        sell_quantity = self.sell_quantity_head(
-            _join_state_and_entities(state, current_market_tokens)
-        )
-        finance_quantity = self.finance_quantity_head(
-            _join_state_and_entities(
-                state,
-                self.finance_action_embedding.weight.unsqueeze(0).expand(state.size(0), -1, -1),
-            )
+        travel_transport = self.travel_transport_head(
+            _join_state_and_candidates(state, encoding.route_mode_tokens)
         )
         travel_fast = self.travel_fast_head(
-            _join_state_and_entities(state, encoding.route_tokens)
+            _join_state_and_candidates(state, encoding.route_option_tokens)
+        )
+        buy_quantity = self.buy_quantity_head(
+            _join_state_and_candidates(state, product_quantity_features)
+        )
+        sell_quantity = self.sell_quantity_head(
+            _join_state_and_candidates(state, product_quantity_features)
+        )
+        borrow_quantity = self.borrow_quantity_head(
+            _join_state_and_candidates(state, quantity_features)
+        )
+        repay_quantity = self.repay_quantity_head(
+            _join_state_and_candidates(state, quantity_features)
+        )
+        buy_truck_quantity = self.buy_truck_quantity_head(
+            _join_state_and_candidates(state, quantity_features)
         )
         return PolicyLogits(
             action=self.action_head(state),
@@ -290,9 +287,9 @@ class ActionPolicy(nn.Module):
             travel_city=travel_city,
             travel_transport=travel_transport,
             travel_fast=travel_fast,
-            borrow_quantity=finance_quantity[:, 0],
-            repay_quantity=finance_quantity[:, 1],
-            buy_truck_quantity=finance_quantity[:, 2],
+            borrow_quantity=borrow_quantity,
+            repay_quantity=repay_quantity,
+            buy_truck_quantity=buy_truck_quantity,
         )
 
     def sample(
@@ -615,39 +612,38 @@ class _FeatureHead(nn.Module):
         return self.layers(features)
 
 
-class _QueryHead(nn.Module):
-    """将全局状态投影为与实体候选相容的查询向量。"""
+class _CandidateHead(nn.Module):
+    """直接比较全局状态与一个或多个结构化候选。"""
 
-    def __init__(self, state_dim: int, entity_dim: int, hidden_dim: int) -> None:
+    def __init__(self, input_dim: int, hidden_dim: int) -> None:
         super().__init__()
         self.layers = nn.Sequential(
-            nn.LayerNorm(state_dim),
-            nn.Linear(state_dim, hidden_dim),
+            nn.LayerNorm(input_dim),
+            nn.Linear(input_dim, hidden_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim, entity_dim),
+            nn.Linear(hidden_dim, 1),
         )
 
-    def forward(self, state: Tensor) -> Tensor:
-        return self.layers(state)
+    def forward(self, features: Tensor) -> Tensor:
+        return self.layers(features).squeeze(-1)
 
 
-def _current_market_tokens(market_tokens: Tensor, current_city_ids: Tensor) -> Tensor:
-    batch_indices = torch.arange(current_city_ids.size(0), device=current_city_ids.device)
-    return market_tokens[batch_indices, current_city_ids]
+def _quantity_features() -> Tensor:
+    """数量档只以其公开含义进入网络，不使用可学习动作嵌入。"""
+
+    return torch.tensor(
+        [
+            (1.0, 0.0) if quantity_bin.ratio is None else (0.0, float(quantity_bin.ratio))
+            for quantity_bin in QuantityBin
+        ],
+        dtype=torch.float32,
+    )
 
 
-def _score_entities(query: Tensor, entities: Tensor, entity_dim: int) -> Tensor:
-    return torch.einsum("bd,bnd->bn", query, entities) / sqrt(entity_dim)
-
-
-def _score_routes(query: Tensor, routes: Tensor, entity_dim: int) -> Tensor:
-    return torch.einsum("bd,bctd->bct", query, routes) / sqrt(entity_dim)
-
-
-def _join_state_and_entities(state: Tensor, entities: Tensor) -> Tensor:
-    state_shape = (state.size(0),) + (1,) * (entities.ndim - 2) + (state.size(-1),)
-    expanded_state = state.reshape(state_shape).expand(*entities.shape[:-1], state.size(-1))
-    return torch.cat((expanded_state, entities), dim=-1)
+def _join_state_and_candidates(state: Tensor, candidates: Tensor) -> Tensor:
+    state_shape = (state.size(0),) + (1,) * (candidates.ndim - 2) + (state.size(-1),)
+    expanded_state = state.reshape(state_shape).expand(*candidates.shape[:-1], state.size(-1))
+    return torch.cat((expanded_state, candidates), dim=-1)
 
 
 def _select_candidate(values: Tensor, indices: Tensor) -> Tensor:
