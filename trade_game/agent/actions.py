@@ -1,7 +1,8 @@
 """智能体动作的离散协议与目录索引。
 
-本模块只定义动作空间，不依赖 PyTorch、Gymnasium 或具体网络。网络可以把这些
-索引分别做 one-hot、embedding 或其他编码，但最终都必须还原为 ``ActionHead``。
+本模块只定义动作空间，不依赖 PyTorch、Gymnasium 或具体网络。当前策略只将数量
+档位的公开语义作为输入；商品、城市和运输方式索引仅用于选择相应候选行，最终都
+必须还原为 ``ActionHead``。
 """
 
 from __future__ import annotations

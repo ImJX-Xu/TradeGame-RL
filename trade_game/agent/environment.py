@@ -10,7 +10,7 @@ from trade_game.core import GameMode, GameSession, create_game_session, settleme
 from .actions import ActionHead, ActionVocabulary
 from .decoder import decode_action
 from .masks import ActionMask, build_action_mask
-from .observation import AgentObservation, build_observation
+from .observation import AgentObservation, ObservationConfig, build_observation
 from .rewards import RewardBreakdown, RewardV1
 
 
@@ -44,9 +44,11 @@ class AgentEnvironment:
         *,
         mode: GameMode = GameMode.CHALLENGE,
         reward: RewardV1 | None = None,
+        observation_config: ObservationConfig | None = None,
     ) -> None:
         self.mode = mode
         self.reward = reward or RewardV1()
+        self.observation_config = observation_config
         self.session: GameSession | None = None
         self.vocabulary: ActionVocabulary | None = None
         self.initial_assets: Decimal | None = None
@@ -60,7 +62,9 @@ class AgentEnvironment:
         self.vocabulary = ActionVocabulary.from_catalog(self.session.catalog)
         self.initial_assets = settlement_assets(self.session.catalog, self.session.rules, self.session.state)
         return EpisodeStart(
-            observation=build_observation(self.session, self.vocabulary),
+            observation=build_observation(
+                self.session, self.vocabulary, config=self.observation_config
+            ),
             action_mask=build_action_mask(self.session, self.vocabulary),
             initial_assets=self.initial_assets,
         )
@@ -85,7 +89,9 @@ class AgentEnvironment:
             initial_assets=self.initial_assets,
         )
         return EpisodeTransition(
-            observation=build_observation(self.session, self.vocabulary),
+            observation=build_observation(
+                self.session, self.vocabulary, config=self.observation_config
+            ),
             action_mask=build_action_mask(self.session, self.vocabulary),
             reward=reward_breakdown.reward,
             terminated=after.outcome is not None,
