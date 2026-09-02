@@ -56,6 +56,11 @@ _ROUTE_GRAPH_CACHE: OrderedDict[
     tuple[Catalog, dict[str, tuple[tuple[str, int], ...]]],
 ] = OrderedDict()
 _ROUTE_GRAPH_CACHE_LIMIT = 64
+_ROUTE_DISTANCE_CACHE: OrderedDict[
+    tuple[int, TransportMode | None],
+    tuple[Catalog, dict[str, dict[str, int]]],
+] = OrderedDict()
+_ROUTE_DISTANCE_CACHE_LIMIT = 64
 
 
 def shortest_distance(
@@ -67,20 +72,9 @@ def shortest_distance(
     catalog.city(destination)
     if origin == destination:
         return 0
-    graph = _route_graph(catalog, mode)
-    queue: list[tuple[int, str]] = [(0, origin)]
-    distances = {origin: 0}
-    while queue:
-        distance, city_name = heapq.heappop(queue)
-        if city_name == destination:
-            return distance
-        if distance != distances[city_name]:
-            continue
-        for next_city, edge_distance in graph.get(city_name, ()):
-            candidate = distance + edge_distance
-            if candidate < distances.get(next_city, 10**18):
-                distances[next_city] = candidate
-                heapq.heappush(queue, (candidate, next_city))
+    distance = _route_distances(catalog, mode)[origin].get(destination)
+    if distance is not None:
+        return distance
     raise RouteNotFound(f"不存在 {mode.value} 路线：{origin} -> {destination}")
 
 
@@ -91,20 +85,9 @@ def shortest_distance_any(catalog: Catalog, origin: str, destination: str) -> in
     catalog.city(destination)
     if origin == destination:
         return 0
-    graph = _route_graph(catalog, None)
-    queue: list[tuple[int, str]] = [(0, origin)]
-    distances = {origin: 0}
-    while queue:
-        distance, city_name = heapq.heappop(queue)
-        if city_name == destination:
-            return distance
-        if distance != distances[city_name]:
-            continue
-        for next_city, edge_distance in graph.get(city_name, ()):
-            candidate = distance + edge_distance
-            if candidate < distances.get(next_city, 10**18):
-                distances[next_city] = candidate
-                heapq.heappush(queue, (candidate, next_city))
+    distance = _route_distances(catalog, None)[origin].get(destination)
+    if distance is not None:
+        return distance
     raise RuntimeError(f"静态路线图不连通：{origin} -> {destination}")
 
 
@@ -308,6 +291,48 @@ def _route_graph(catalog: Catalog, mode: TransportMode | None) -> dict[str, tupl
     if len(_ROUTE_GRAPH_CACHE) > _ROUTE_GRAPH_CACHE_LIMIT:
         _ROUTE_GRAPH_CACHE.popitem(last=False)
     return frozen_graph
+
+
+def _route_distances(
+    catalog: Catalog,
+    mode: TransportMode | None,
+) -> dict[str, dict[str, int]]:
+    """缓存同一目录和运输方式下的全源最短路线距离。"""
+
+    key = (id(catalog), mode)
+    cached = _ROUTE_DISTANCE_CACHE.get(key)
+    if cached is not None and cached[0] is catalog:
+        _ROUTE_DISTANCE_CACHE.move_to_end(key)
+        return cached[1]
+
+    graph = _route_graph(catalog, mode)
+    distances = {
+        origin: _shortest_distances_from(graph, origin)
+        for origin in catalog.cities
+    }
+    _ROUTE_DISTANCE_CACHE[key] = (catalog, distances)
+    _ROUTE_DISTANCE_CACHE.move_to_end(key)
+    if len(_ROUTE_DISTANCE_CACHE) > _ROUTE_DISTANCE_CACHE_LIMIT:
+        _ROUTE_DISTANCE_CACHE.popitem(last=False)
+    return distances
+
+
+def _shortest_distances_from(
+    graph: dict[str, tuple[tuple[str, int], ...]],
+    origin: str,
+) -> dict[str, int]:
+    queue: list[tuple[int, str]] = [(0, origin)]
+    distances = {origin: 0}
+    while queue:
+        distance, city_name = heapq.heappop(queue)
+        if distance != distances[city_name]:
+            continue
+        for next_city, edge_distance in graph.get(city_name, ()):
+            candidate = distance + edge_distance
+            if candidate < distances.get(next_city, 10**18):
+                distances[next_city] = candidate
+                heapq.heappush(queue, (candidate, next_city))
+    return distances
 
 
 def _sample_travel_days(rules: GameRules, mode: TransportMode, distance_km: int, rng: Random) -> int:

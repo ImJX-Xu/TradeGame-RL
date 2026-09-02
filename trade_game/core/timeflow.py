@@ -26,9 +26,6 @@ from .rules import GameRules
 from .vehicles import daily_labor_cost
 
 
-PRICE_HISTORY_DAYS = 7
-
-
 def settle_elapsed_days(
     catalog: Catalog,
     rules: GameRules,
@@ -200,7 +197,7 @@ def _refresh_market(
                 ),
             )
     history = {
-        key: (*market.price_adjustment_history[key], value)[-PRICE_HISTORY_DAYS:]
+        key: (*market.price_adjustment_history[key], value)[-rules.market.price_history_days :]
         for key, value in refreshed.items()
     }
     return MarketState(

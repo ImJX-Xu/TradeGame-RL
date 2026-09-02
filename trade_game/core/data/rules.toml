@@ -23,6 +23,7 @@ event_ramp_days = 2
 shortage_probability = "0.55"
 regional_scope_probability = "0.40"
 purchase_cooldown_days = 14
+price_history_days = 7
 
 [transport]
 fast_cost_multiplier = "3"
