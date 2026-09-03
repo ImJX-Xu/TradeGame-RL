@@ -213,83 +213,71 @@ class ActionPolicy(nn.Module):
         super().__init__()
         self.spec = spec
         self.state_dim = config.state_dim
-        self.row_dim = config.row_dim
         hidden_dim = config.hidden_dim
         quantity_count = len(QuantityBin)
 
-        self.action_head = _FeatureHead(self.state_dim, len(ACTION_TYPES), hidden_dim)
-        self.buy_product_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
-        self.sell_product_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
-        self.travel_city_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
-        self.travel_transport_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
-        self.travel_fast_head = _CandidateHead(self.state_dim + self.row_dim, hidden_dim)
-        self.buy_quantity_head = _CandidateHead(self.state_dim + self.row_dim + 2, hidden_dim)
-        self.sell_quantity_head = _CandidateHead(self.state_dim + self.row_dim + 2, hidden_dim)
-        self.borrow_quantity_head = _CandidateHead(self.state_dim + 2, hidden_dim)
-        self.repay_quantity_head = _CandidateHead(self.state_dim + 2, hidden_dim)
-        self.buy_truck_quantity_head = _CandidateHead(self.state_dim + 2, hidden_dim)
-        self.register_buffer("quantity_features", _quantity_features(), persistent=False)
+        self.actor = _ActorMLP(self.state_dim, hidden_dim)
+        self.action_head = nn.Linear(hidden_dim, len(ACTION_TYPES))
+        self.buy_product_head = nn.Linear(hidden_dim, spec.product_count)
+        self.sell_product_head = nn.Linear(hidden_dim, spec.product_count)
+        self.buy_quantity_head = nn.Linear(hidden_dim, spec.product_count * quantity_count)
+        self.sell_quantity_head = nn.Linear(hidden_dim, spec.product_count * quantity_count)
+        self.travel_city_head = nn.Linear(hidden_dim, spec.city_count)
+        self.travel_transport_head = nn.Linear(
+            hidden_dim, spec.city_count * spec.transport_count
+        )
+        self.travel_fast_head = nn.Linear(
+            hidden_dim, spec.city_count * spec.transport_count * 2
+        )
+        self.borrow_quantity_head = nn.Linear(hidden_dim, quantity_count)
+        self.repay_quantity_head = nn.Linear(hidden_dim, quantity_count)
+        self.buy_truck_quantity_head = nn.Linear(hidden_dim, quantity_count)
+        _orthogonal_init(self)
+        for head in (
+            self.action_head,
+            self.buy_product_head,
+            self.sell_product_head,
+            self.buy_quantity_head,
+            self.sell_quantity_head,
+            self.travel_city_head,
+            self.travel_transport_head,
+            self.travel_fast_head,
+            self.borrow_quantity_head,
+            self.repay_quantity_head,
+            self.buy_truck_quantity_head,
+        ):
+            nn.init.orthogonal_(head.weight, gain=0.01)
+            nn.init.zeros_(head.bias)
 
     def forward(self, encoding: StateEncoding, batch: ObservationBatch) -> PolicyLogits:
         """计算所有条件分支的 logits，不在此处采样或应用动作掩码。"""
 
         del batch
-        state = encoding.state
-        quantity_count = self.quantity_features.size(0)
-        quantity_features = self.quantity_features.unsqueeze(0).expand(state.size(0), -1, -1)
-        product_quantity_features = torch.cat(
-            (
-                encoding.product_tokens.unsqueeze(2).expand(
-                    -1, -1, quantity_count, -1
-                ),
-                quantity_features.unsqueeze(1).expand(
-                    -1, self.spec.product_count, -1, -1
-                ),
-            ),
-            dim=-1,
+        actor_state = self.actor(encoding.state)
+        buy_quantity = self.buy_quantity_head(actor_state).reshape(
+            -1, self.spec.product_count, len(QuantityBin)
         )
-        buy_product = self.buy_product_head(
-            _join_state_and_candidates(state, encoding.product_tokens)
+        sell_quantity = self.sell_quantity_head(actor_state).reshape(
+            -1, self.spec.product_count, len(QuantityBin)
         )
-        sell_product = self.sell_product_head(
-            _join_state_and_candidates(state, encoding.product_tokens)
+        travel_transport = self.travel_transport_head(actor_state).reshape(
+            -1, self.spec.city_count, self.spec.transport_count
         )
-        travel_city = self.travel_city_head(
-            _join_state_and_candidates(state, encoding.route_city_tokens)
-        )
-        travel_transport = self.travel_transport_head(
-            _join_state_and_candidates(state, encoding.route_mode_tokens)
-        )
-        travel_fast = self.travel_fast_head(
-            _join_state_and_candidates(state, encoding.route_option_tokens)
-        )
-        buy_quantity = self.buy_quantity_head(
-            _join_state_and_candidates(state, product_quantity_features)
-        )
-        sell_quantity = self.sell_quantity_head(
-            _join_state_and_candidates(state, product_quantity_features)
-        )
-        borrow_quantity = self.borrow_quantity_head(
-            _join_state_and_candidates(state, quantity_features)
-        )
-        repay_quantity = self.repay_quantity_head(
-            _join_state_and_candidates(state, quantity_features)
-        )
-        buy_truck_quantity = self.buy_truck_quantity_head(
-            _join_state_and_candidates(state, quantity_features)
+        travel_fast = self.travel_fast_head(actor_state).reshape(
+            -1, self.spec.city_count, self.spec.transport_count, 2
         )
         return PolicyLogits(
-            action=self.action_head(state),
-            buy_product=buy_product,
-            sell_product=sell_product,
+            action=self.action_head(actor_state),
+            buy_product=self.buy_product_head(actor_state),
+            sell_product=self.sell_product_head(actor_state),
             buy_quantity=buy_quantity,
             sell_quantity=sell_quantity,
-            travel_city=travel_city,
+            travel_city=self.travel_city_head(actor_state),
             travel_transport=travel_transport,
             travel_fast=travel_fast,
-            borrow_quantity=borrow_quantity,
-            repay_quantity=repay_quantity,
-            buy_truck_quantity=buy_truck_quantity,
+            borrow_quantity=self.borrow_quantity_head(actor_state),
+            repay_quantity=self.repay_quantity_head(actor_state),
+            buy_truck_quantity=self.buy_truck_quantity_head(actor_state),
         )
 
     def sample(
@@ -544,11 +532,13 @@ class ActorCritic(nn.Module):
         super().__init__()
         self.encoder = StateEncoder(spec, encoder_config)
         self.policy = ActionPolicy(spec, self.encoder.config)
-        self.value_head = _FeatureHead(
+        self.value_head = _MLP(
             self.encoder.config.state_dim,
-            1,
             self.encoder.config.hidden_dim,
+            self.encoder.config.hidden_dim // 2,
+            output_dim=1,
         )
+        _orthogonal_init(self.value_head)
 
     def forward(self, batch: ObservationBatch) -> ActorCriticOutput:
         """计算策略分支、全局价值和中间状态编码。"""
@@ -596,24 +586,33 @@ class ActorCritic(nn.Module):
         )
 
 
-class _FeatureHead(nn.Module):
-    """策略和价值分支共用的末维 MLP 结构。"""
+class _MLP(nn.Module):
+    """Actor 或 Critic 使用的独立多层感知机。"""
 
-    def __init__(self, input_dim: int, output_dim: int, hidden_dim: int) -> None:
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        bottleneck_dim: int,
+        *,
+        output_dim: int,
+    ) -> None:
         super().__init__()
         self.layers = nn.Sequential(
             nn.LayerNorm(input_dim),
             nn.Linear(input_dim, hidden_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim, output_dim),
+            nn.Linear(hidden_dim, bottleneck_dim),
+            nn.GELU(),
+            nn.Linear(bottleneck_dim, output_dim),
         )
 
     def forward(self, features: Tensor) -> Tensor:
         return self.layers(features)
 
 
-class _CandidateHead(nn.Module):
-    """直接比较全局状态与一个或多个结构化候选。"""
+class _ActorMLP(nn.Module):
+    """Actor 的两层 ``128 -> 128 -> 128`` 表征网络。"""
 
     def __init__(self, input_dim: int, hidden_dim: int) -> None:
         super().__init__()
@@ -621,29 +620,19 @@ class _CandidateHead(nn.Module):
             nn.LayerNorm(input_dim),
             nn.Linear(input_dim, hidden_dim),
             nn.GELU(),
-            nn.Linear(hidden_dim, 1),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
         )
 
     def forward(self, features: Tensor) -> Tensor:
-        return self.layers(features).squeeze(-1)
+        return self.layers(features)
 
 
-def _quantity_features() -> Tensor:
-    """数量档只以其公开含义进入网络，不使用可学习动作嵌入。"""
-
-    return torch.tensor(
-        [
-            (1.0, 0.0) if quantity_bin.ratio is None else (0.0, float(quantity_bin.ratio))
-            for quantity_bin in QuantityBin
-        ],
-        dtype=torch.float32,
-    )
-
-
-def _join_state_and_candidates(state: Tensor, candidates: Tensor) -> Tensor:
-    state_shape = (state.size(0),) + (1,) * (candidates.ndim - 2) + (state.size(-1),)
-    expanded_state = state.reshape(state_shape).expand(*candidates.shape[:-1], state.size(-1))
-    return torch.cat((expanded_state, candidates), dim=-1)
+def _orthogonal_init(module: nn.Module) -> None:
+    for layer in module.modules():
+        if isinstance(layer, nn.Linear):
+            nn.init.orthogonal_(layer.weight, gain=2**0.5)
+            nn.init.zeros_(layer.bias)
 
 
 def _select_candidate(values: Tensor, indices: Tensor) -> Tensor:

@@ -31,7 +31,13 @@ initial_target_kl = 0.01
 normalize_advantages = true
 
 [encoder]
-row_dim = 64
+global_dim = 64
+city_dim = 64
+product_dim = 96
+market_dim = 128
+route_dim = 128
+cargo_dim = 96
+fusion_hidden_dim = 256
 state_dim = 128
 hidden_dim = 128
 dropout = 0.0

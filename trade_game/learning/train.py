@@ -35,7 +35,6 @@ class PPOTrainingConfig:
     ppo: PPOConfig = field(default_factory=PPOConfig)
     encoder: StateEncoderConfig = field(
         default_factory=lambda: StateEncoderConfig(
-            row_dim=64,
             state_dim=128,
             hidden_dim=128,
         )
