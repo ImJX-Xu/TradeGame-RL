@@ -34,8 +34,9 @@ _Mask = tuple[bool, ...]
 class ActionMask:
     """一个游戏状态下的条件化合法动作集合。
 
-    ``action`` 与 ``ActionVocabulary.action_types`` 对齐。商品、运输方式和数量掩码
-    只有在对应命令已被选中时才读取；例如 ``buy_quantity[product_index]``。
+    ``action`` 与 ``ActionVocabulary.action_types`` 对齐。买卖掩码直接对应
+    ``[商品, 数量]`` 联合组合，旅行掩码直接对应
+    ``[目的地, 运输方式, 是否加急]`` 联合组合；仅在对应命令被选中时读取。
     """
 
     action: _Mask
