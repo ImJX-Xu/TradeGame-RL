@@ -388,12 +388,7 @@ DAgger 完成后，训练器复用已经初始化的 Actor-Critic 参数继续 P
 
 该流程的监测指标包括示范数据集规模、`beta`、学习者与教师动作一致率、BC 损失、PPO 指标和每轮评估结果。
 
-```powershell
-python -m trade_game dagger-ppo `
-  --config trade_game/learning/configs/dagger_ppo_v1_1m.toml
-```
-
-`dagger-ppo` 同样支持 `--updates`、`--rollout-steps`、`--checkpoint` 和 `--tensorboard-logdir` 覆盖配置，也可用 `--expert-episodes`、`--dagger-rounds` 缩小教师数据与纠偏轮数，用于快速验证。
+DAgger、BC 与 PPO 将在后续入口重构中分别提供独立命令；历史组合配置不再作为当前默认用法。
 
 ### 贪心经营基准
 
@@ -406,17 +401,13 @@ python -m trade_game greedy --seed 173 --trace
 
 ### 配置目录
 
-仓库同时提供原始游戏规则与 14 天城市-商品采购恢复期规则下的训练配置：
+当前训练只保留一个默认 PPO 配置，作为本阶段统一的起点：
 
-| 配置 | 规则版本 | 采样方式 | 训练规模 | 调度策略 |
+| 配置 | 用途 | 采样方式 | 训练规模 |
 |---|---|---|---:|---|
-| `ppo_default.toml` | 原始规则 | 单环境 | 默认 100 updates | 固定 PPO 参数 |
-| `ppo_v2.toml` | 原始规则 | 8 环境并行 | 约 100k 步 | 学习率、熵和 KL 渐进调度 |
-| `ppo_v2_1m.toml` | 原始规则 | 8 环境并行 | 约 1M 步 | 学习率、熵和 KL 渐进调度 |
-| `ppo_v2_cooldown14_1m.toml` | 14 天城市-商品采购恢复期 | 8 环境并行 | 约 1M 步 | 采购恢复期与渐进调度 |
-| `dagger_ppo_v1_1m.toml` | 14 天城市-商品采购恢复期 | 贪心教师、两轮 DAgger、8 环境 PPO | 999,936 步 | BC 初始化与学习率、熵、KL 渐进调度 |
+| `ppo_default.toml` | 统一默认 PPO 训练 | 由配置指定 | 由配置指定 |
 
-训练中会将教师数据规模、行为克隆损失与动作一致率写入 `imitation/*`，并沿用 PPO 的收益、价值损失、KL、裁剪比例、动作分布和训练集种子评估指标。开发者可以按训练配置查看各阶段的资产曲线与优化指标。
+历史实验配置已移至 `D:\Code\_待手动删除`，仅供人工查阅或恢复，不再属于当前仓库配置入口。
 
 ## 相关文档
 
