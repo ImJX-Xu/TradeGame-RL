@@ -388,7 +388,12 @@ DAgger 完成后，训练器复用已经初始化的 Actor-Critic 参数继续 P
 
 该流程的监测指标包括示范数据集规模、`beta`、学习者与教师动作一致率、BC 损失、PPO 指标和每轮评估结果。
 
-DAgger、BC 与 PPO 将在后续入口重构中分别提供独立命令；历史组合配置不再作为当前默认用法。
+DAgger、BC 与 PPO 的组合流程仍保留，使用专用配置：
+
+```powershell
+python -m trade_game dagger-ppo `
+  --config trade_game/learning/configs/dagger_ppo_v1_1m.toml
+```
 
 ### 贪心经营基准
 
@@ -406,8 +411,9 @@ python -m trade_game greedy --seed 173 --trace
 | 配置 | 用途 | 采样方式 | 训练规模 |
 |---|---|---|---:|---|
 | `ppo_default.toml` | 统一默认 PPO 训练 | 由配置指定 | 由配置指定 |
+| `dagger_ppo_v1_1m.toml` | DAgger → BC → PPO | 8 环境并行 | 约 1M 步 PPO |
 
-历史实验配置已移至 `D:\Code\_待手动删除`，仅供人工查阅或恢复，不再属于当前仓库配置入口。
+其余历史实验配置已移至 `D:\Code\_待手动删除`，仅供人工查阅或恢复，不再属于当前仓库配置入口。DAgger 配置中的 `[ppo]` 参数与 `ppo_default.toml` 保持一致，训练规模参数单独设置为约百万环境步。
 
 ## 相关文档
 
