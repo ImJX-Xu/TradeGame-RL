@@ -23,13 +23,9 @@ if TYPE_CHECKING:
 
 _HEAD_ENTROPY_ACTIONS: tuple[tuple[str, CommandType | None], ...] = (
     ("action", None),
-    ("buy_product", CommandType.BUY),
-    ("sell_product", CommandType.SELL),
-    ("buy_quantity", CommandType.BUY),
-    ("sell_quantity", CommandType.SELL),
-    ("travel_city", CommandType.TRAVEL),
-    ("travel_transport", CommandType.TRAVEL),
-    ("travel_fast", CommandType.TRAVEL),
+    ("buy", CommandType.BUY),
+    ("sell", CommandType.SELL),
+    ("travel", CommandType.TRAVEL),
     ("borrow_quantity", CommandType.BORROW),
     ("repay_quantity", CommandType.REPAY),
     ("buy_truck_quantity", CommandType.BUY_TRUCK),

@@ -282,7 +282,7 @@ AgentObservation + ActionMask
         -> next observation, reward, elapsed_days
 ```
 
-策略网络输出多个条件动作头，但只对当前动作路径计算概率。例如 `BUY` 只读取动作类型、商品和数量三个头；`TRAVEL` 读取动作类型、目的地、运输方式和加急四个头。每个头都先应用当前状态的动作掩码，再从合法类别中采样。当前路径上的各头 log probability 相加，得到整个六元组动作的联合 `log_prob`。
+策略网络输出动作类型头和动作专属联合参数头：`BUY`/`SELL` 直接在“商品×数量”组合上评分，`TRAVEL` 直接在“目的地×运输方式×加急”组合上评分，`BORROW`、`REPAY`、`BUY_TRUCK` 使用独立数量头。每个联合头都先应用当前状态的动作掩码，再从合法组合中采样；各路径 log probability 相加，得到整个六元组动作的联合 `log_prob`。
 
 动作掩码限定智能体在当前状态下的合法类别，`GameSession.dispatch` 负责执行完整游戏规则。训练推理和人类游玩因此共享同一套核心命令约束。
 

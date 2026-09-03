@@ -226,13 +226,9 @@ class ActionMaskBatch:
     """动作掩码保持为核心规则的独立输出。"""
 
     action: Tensor
-    buy_product: Tensor
-    sell_product: Tensor
-    buy_quantity: Tensor
-    sell_quantity: Tensor
-    travel_city: Tensor
-    travel_transport: Tensor
-    travel_fast: Tensor
+    buy: Tensor
+    sell: Tensor
+    travel: Tensor
     borrow_quantity: Tensor
     repay_quantity: Tensor
     buy_truck_quantity: Tensor
@@ -249,15 +245,9 @@ class ActionMaskBatch:
             raise ObservationBatchError("动作掩码批次不能为空")
         batch = cls(
             action=torch.tensor([mask.action for mask in items], dtype=torch.bool),
-            buy_product=torch.tensor([mask.buy_product for mask in items], dtype=torch.bool),
-            sell_product=torch.tensor([mask.sell_product for mask in items], dtype=torch.bool),
-            buy_quantity=torch.tensor([mask.buy_quantity for mask in items], dtype=torch.bool),
-            sell_quantity=torch.tensor([mask.sell_quantity for mask in items], dtype=torch.bool),
-            travel_city=torch.tensor([mask.travel_city for mask in items], dtype=torch.bool),
-            travel_transport=torch.tensor(
-                [mask.travel_transport for mask in items], dtype=torch.bool
-            ),
-            travel_fast=torch.tensor([mask.travel_fast for mask in items], dtype=torch.bool),
+            buy=torch.tensor([mask.buy for mask in items], dtype=torch.bool),
+            sell=torch.tensor([mask.sell for mask in items], dtype=torch.bool),
+            travel=torch.tensor([mask.travel for mask in items], dtype=torch.bool),
             borrow_quantity=torch.tensor(
                 [mask.borrow_quantity for mask in items], dtype=torch.bool
             ),
@@ -272,13 +262,9 @@ class ActionMaskBatch:
         return replace(
             self,
             action=self.action.to(device, non_blocking=non_blocking),
-            buy_product=self.buy_product.to(device, non_blocking=non_blocking),
-            sell_product=self.sell_product.to(device, non_blocking=non_blocking),
-            buy_quantity=self.buy_quantity.to(device, non_blocking=non_blocking),
-            sell_quantity=self.sell_quantity.to(device, non_blocking=non_blocking),
-            travel_city=self.travel_city.to(device, non_blocking=non_blocking),
-            travel_transport=self.travel_transport.to(device, non_blocking=non_blocking),
-            travel_fast=self.travel_fast.to(device, non_blocking=non_blocking),
+            buy=self.buy.to(device, non_blocking=non_blocking),
+            sell=self.sell.to(device, non_blocking=non_blocking),
+            travel=self.travel.to(device, non_blocking=non_blocking),
             borrow_quantity=self.borrow_quantity.to(device, non_blocking=non_blocking),
             repay_quantity=self.repay_quantity.to(device, non_blocking=non_blocking),
             buy_truck_quantity=self.buy_truck_quantity.to(device, non_blocking=non_blocking),
@@ -288,13 +274,9 @@ class ActionMaskBatch:
         return replace(
             self,
             action=self.action.index_select(0, indices),
-            buy_product=self.buy_product.index_select(0, indices),
-            sell_product=self.sell_product.index_select(0, indices),
-            buy_quantity=self.buy_quantity.index_select(0, indices),
-            sell_quantity=self.sell_quantity.index_select(0, indices),
-            travel_city=self.travel_city.index_select(0, indices),
-            travel_transport=self.travel_transport.index_select(0, indices),
-            travel_fast=self.travel_fast.index_select(0, indices),
+            buy=self.buy.index_select(0, indices),
+            sell=self.sell.index_select(0, indices),
+            travel=self.travel.index_select(0, indices),
             borrow_quantity=self.borrow_quantity.index_select(0, indices),
             repay_quantity=self.repay_quantity.index_select(0, indices),
             buy_truck_quantity=self.buy_truck_quantity.index_select(0, indices),

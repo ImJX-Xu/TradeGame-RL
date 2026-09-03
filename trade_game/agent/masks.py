@@ -39,13 +39,9 @@ class ActionMask:
     """
 
     action: _Mask
-    buy_product: _Mask
-    sell_product: _Mask
-    buy_quantity: tuple[_Mask, ...]
-    sell_quantity: tuple[_Mask, ...]
-    travel_city: _Mask
-    travel_transport: tuple[_Mask, ...]
-    travel_fast: tuple[tuple[_Mask, ...], ...]
+    buy: tuple[_Mask, ...]
+    sell: tuple[_Mask, ...]
+    travel: tuple[tuple[_Mask, ...], ...]
     borrow_quantity: _Mask
     repay_quantity: _Mask
     buy_truck_quantity: _Mask
@@ -55,42 +51,34 @@ def build_action_mask(session: GameSession, vocabulary: ActionVocabulary) -> Act
     """按当前会话和固定词表生成一次完整的合法动作快照。"""
 
     empty_quantity = _empty_mask(len(QuantityBin))
-    empty_product = _empty_mask(len(vocabulary.product_ids))
-    empty_city = _empty_mask(len(vocabulary.city_names))
-    empty_transport = _empty_mask(len(vocabulary.transport_modes))
-    empty_fast = (False, False)
+    empty_product_quantity = tuple(empty_quantity for _ in vocabulary.product_ids)
+    empty_travel = tuple(
+        tuple((False, False) for _ in vocabulary.transport_modes)
+        for _ in vocabulary.city_names
+    )
     if session.state.outcome is not None:
         return ActionMask(
             action=_empty_mask(len(vocabulary.action_types)),
-            buy_product=empty_product,
-            sell_product=empty_product,
-            buy_quantity=tuple(empty_quantity for _ in vocabulary.product_ids),
-            sell_quantity=tuple(empty_quantity for _ in vocabulary.product_ids),
-            travel_city=empty_city,
-            travel_transport=tuple(empty_transport for _ in vocabulary.city_names),
-            travel_fast=tuple(
-                tuple(empty_fast for _ in vocabulary.transport_modes)
-                for _ in vocabulary.city_names
-            ),
+            buy=empty_product_quantity,
+            sell=empty_product_quantity,
+            travel=empty_travel,
             borrow_quantity=empty_quantity,
             repay_quantity=empty_quantity,
             buy_truck_quantity=empty_quantity,
         )
 
     state = session.state
-    buy_quantity = tuple(
+    buy = tuple(
         _integer_quantity_mask(
             maximum_purchase_quantity(session.catalog, session.rules, state, product_id)
         )
         for product_id in vocabulary.product_ids
     )
-    sell_quantity = tuple(
+    sell = tuple(
         _integer_quantity_mask(cargo_quantity(state.player.cargo_lots, product_id))
         for product_id in vocabulary.product_ids
     )
-    buy_product = tuple(any(mask) for mask in buy_quantity)
-    sell_product = tuple(any(mask) for mask in sell_quantity)
-    travel_city, travel_transport, travel_fast = _travel_masks(session, vocabulary)
+    travel = _travel_mask(session, vocabulary)
 
     has_bank = session.catalog.city(state.player.location).has_bank
     borrow_quantity = (
@@ -106,9 +94,9 @@ def build_action_mask(session: GameSession, vocabulary: ActionVocabulary) -> Act
     buy_truck_quantity = _integer_quantity_mask(maximum_truck_quantity(session.rules, state))
 
     active = {
-        CommandType.BUY: any(buy_product),
-        CommandType.SELL: any(sell_product),
-        CommandType.TRAVEL: any(travel_city),
+        CommandType.BUY: any(any(mask) for mask in buy),
+        CommandType.SELL: any(any(mask) for mask in sell),
+        CommandType.TRAVEL: any(any(any(fast) for fast in transports) for transports in travel),
         CommandType.BORROW: any(borrow_quantity),
         CommandType.REPAY: any(repay_quantity),
         CommandType.REPAIR_TRUCK: repair_truck(session.rules, state, RepairTruck()).accepted,
@@ -117,28 +105,21 @@ def build_action_mask(session: GameSession, vocabulary: ActionVocabulary) -> Act
     }
     return ActionMask(
         action=tuple(active[command_type] for command_type in vocabulary.action_types),
-        buy_product=buy_product,
-        sell_product=sell_product,
-        buy_quantity=buy_quantity,
-        sell_quantity=sell_quantity,
-        travel_city=travel_city,
-        travel_transport=travel_transport,
-        travel_fast=travel_fast,
+        buy=buy,
+        sell=sell,
+        travel=travel,
         borrow_quantity=borrow_quantity,
         repay_quantity=repay_quantity,
         buy_truck_quantity=buy_truck_quantity,
     )
 
 
-def _travel_masks(
+def _travel_mask(
     session: GameSession, vocabulary: ActionVocabulary
-) -> tuple[_Mask, tuple[_Mask, ...], tuple[tuple[_Mask, ...], ...]]:
-    city_mask: list[bool] = []
-    transport_masks: list[_Mask] = []
-    fast_masks: list[tuple[_Mask, ...]] = []
+) -> tuple[tuple[_Mask, ...], ...]:
+    travel: list[tuple[_Mask, ...]] = []
     for city_name in vocabulary.city_names:
         city_fast_masks: list[_Mask] = []
-        city_transport_mask: list[bool] = []
         for mode in vocabulary.transport_modes:
             fast_mask = tuple(
                 can_travel(
@@ -150,12 +131,8 @@ def _travel_masks(
                 for fast_index in range(2)
             )
             city_fast_masks.append(fast_mask)
-            city_transport_mask.append(any(fast_mask))
-        transport_mask = tuple(city_transport_mask)
-        fast_masks.append(tuple(city_fast_masks))
-        transport_masks.append(transport_mask)
-        city_mask.append(any(transport_mask))
-    return tuple(city_mask), tuple(transport_masks), tuple(fast_masks)
+        travel.append(tuple(city_fast_masks))
+    return tuple(travel)
 
 
 def _integer_quantity_mask(maximum: int) -> _Mask:

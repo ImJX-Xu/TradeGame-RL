@@ -110,13 +110,9 @@ class PolicyLogits:
     """所有条件动作分支的未归一化 logits。"""
 
     action: Tensor
-    buy_product: Tensor
-    sell_product: Tensor
-    buy_quantity: Tensor
-    sell_quantity: Tensor
-    travel_city: Tensor
-    travel_transport: Tensor
-    travel_fast: Tensor
+    buy: Tensor
+    sell: Tensor
+    travel: Tensor
     borrow_quantity: Tensor
     repay_quantity: Tensor
     buy_truck_quantity: Tensor
@@ -127,30 +123,22 @@ class ActionHeadEntropies:
     """条件动作分支在当前掩码下的逐样本熵。"""
 
     action: Tensor
-    buy_product: Tensor
-    sell_product: Tensor
-    buy_quantity: Tensor
-    sell_quantity: Tensor
-    travel_city: Tensor
-    travel_transport: Tensor
-    travel_fast: Tensor
+    buy: Tensor
+    sell: Tensor
+    travel: Tensor
     borrow_quantity: Tensor
     repay_quantity: Tensor
     buy_truck_quantity: Tensor
 
     def as_tensor(self) -> Tensor:
-        """按稳定顺序堆叠为 ``[B, 11]`` 张量，供 rollout 批量记录。"""
+        """按稳定顺序堆叠为 ``[B, 7]`` 张量，供 rollout 批量记录。"""
 
         return torch.stack(
             (
                 self.action,
-                self.buy_product,
-                self.sell_product,
-                self.buy_quantity,
-                self.sell_quantity,
-                self.travel_city,
-                self.travel_transport,
-                self.travel_fast,
+                self.buy,
+                self.sell,
+                self.travel,
                 self.borrow_quantity,
                 self.repay_quantity,
                 self.buy_truck_quantity,
@@ -218,30 +206,18 @@ class ActionPolicy(nn.Module):
 
         self.actor = _ActorMLP(self.state_dim, hidden_dim)
         self.action_head = nn.Linear(hidden_dim, len(ACTION_TYPES))
-        self.buy_product_head = nn.Linear(hidden_dim, spec.product_count)
-        self.sell_product_head = nn.Linear(hidden_dim, spec.product_count)
-        self.buy_quantity_head = nn.Linear(hidden_dim, spec.product_count * quantity_count)
-        self.sell_quantity_head = nn.Linear(hidden_dim, spec.product_count * quantity_count)
-        self.travel_city_head = nn.Linear(hidden_dim, spec.city_count)
-        self.travel_transport_head = nn.Linear(
-            hidden_dim, spec.city_count * spec.transport_count
-        )
-        self.travel_fast_head = nn.Linear(
-            hidden_dim, spec.city_count * spec.transport_count * 2
-        )
+        self.buy_head = nn.Linear(hidden_dim, spec.product_count * quantity_count)
+        self.sell_head = nn.Linear(hidden_dim, spec.product_count * quantity_count)
+        self.travel_head = nn.Linear(hidden_dim, spec.city_count * spec.transport_count * 2)
         self.borrow_quantity_head = nn.Linear(hidden_dim, quantity_count)
         self.repay_quantity_head = nn.Linear(hidden_dim, quantity_count)
         self.buy_truck_quantity_head = nn.Linear(hidden_dim, quantity_count)
         _orthogonal_init(self)
         for head in (
             self.action_head,
-            self.buy_product_head,
-            self.sell_product_head,
-            self.buy_quantity_head,
-            self.sell_quantity_head,
-            self.travel_city_head,
-            self.travel_transport_head,
-            self.travel_fast_head,
+            self.buy_head,
+            self.sell_head,
+            self.travel_head,
             self.borrow_quantity_head,
             self.repay_quantity_head,
             self.buy_truck_quantity_head,
@@ -254,27 +230,13 @@ class ActionPolicy(nn.Module):
 
         del batch
         actor_state = self.actor(encoding.state)
-        buy_quantity = self.buy_quantity_head(actor_state).reshape(
-            -1, self.spec.product_count, len(QuantityBin)
-        )
-        sell_quantity = self.sell_quantity_head(actor_state).reshape(
-            -1, self.spec.product_count, len(QuantityBin)
-        )
-        travel_transport = self.travel_transport_head(actor_state).reshape(
-            -1, self.spec.city_count, self.spec.transport_count
-        )
-        travel_fast = self.travel_fast_head(actor_state).reshape(
-            -1, self.spec.city_count, self.spec.transport_count, 2
-        )
         return PolicyLogits(
             action=self.action_head(actor_state),
-            buy_product=self.buy_product_head(actor_state),
-            sell_product=self.sell_product_head(actor_state),
-            buy_quantity=buy_quantity,
-            sell_quantity=sell_quantity,
-            travel_city=self.travel_city_head(actor_state),
-            travel_transport=travel_transport,
-            travel_fast=travel_fast,
+            buy=self.buy_head(actor_state).reshape(-1, self.spec.product_count, len(QuantityBin)),
+            sell=self.sell_head(actor_state).reshape(-1, self.spec.product_count, len(QuantityBin)),
+            travel=self.travel_head(actor_state).reshape(
+                -1, self.spec.city_count, self.spec.transport_count, 2
+            ),
             borrow_quantity=self.borrow_quantity_head(actor_state),
             repay_quantity=self.repay_quantity_head(actor_state),
             buy_truck_quantity=self.buy_truck_quantity_head(actor_state),
@@ -303,26 +265,26 @@ class ActionPolicy(nn.Module):
         repay_selected = action_index == _REPAY_ACTION_INDEX
         buy_truck_selected = action_index == _BUY_TRUCK_ACTION_INDEX
 
-        buy_product, buy_log_prob, buy_entropy = _sample_selected(
-            logits.buy_product, masks.buy_product, buy_selected, deterministic=deterministic
+        buy_flat, buy_mask_flat = _flatten_joint(logits.buy, masks.buy)
+        sell_flat, sell_mask_flat = _flatten_joint(logits.sell, masks.sell)
+        travel_flat, travel_mask_flat = _flatten_joint(logits.travel, masks.travel)
+        buy_joint, buy_log_prob, buy_entropy = _sample_selected(
+            buy_flat, buy_mask_flat, buy_selected, deterministic=deterministic
         )
-        sell_product, sell_log_prob, sell_entropy = _sample_selected(
-            logits.sell_product, masks.sell_product, sell_selected, deterministic=deterministic
+        sell_joint, sell_log_prob, sell_entropy = _sample_selected(
+            sell_flat, sell_mask_flat, sell_selected, deterministic=deterministic
         )
+        buy_product = buy_joint // len(QuantityBin)
+        buy_quantity = buy_joint % len(QuantityBin)
+        sell_product = sell_joint // len(QuantityBin)
+        sell_quantity = sell_joint % len(QuantityBin)
         product_index = torch.where(buy_selected, buy_product, sell_product)
+        quantity_index = torch.zeros(batch_size, dtype=torch.long, device=action_index.device)
+        quantity_index = torch.where(buy_selected, buy_quantity, quantity_index)
+        quantity_index = torch.where(sell_selected, sell_quantity, quantity_index)
         log_prob = log_prob + buy_log_prob + sell_log_prob
         entropy = entropy + buy_entropy + sell_entropy
 
-        buy_quantity_logits = _select_candidate(logits.buy_quantity, product_index)
-        buy_quantity_mask = _select_candidate(masks.buy_quantity, product_index)
-        buy_quantity, buy_quantity_log_prob, buy_quantity_entropy = _sample_selected(
-            buy_quantity_logits, buy_quantity_mask, buy_selected, deterministic=deterministic
-        )
-        sell_quantity_logits = _select_candidate(logits.sell_quantity, product_index)
-        sell_quantity_mask = _select_candidate(masks.sell_quantity, product_index)
-        sell_quantity, sell_quantity_log_prob, sell_quantity_entropy = _sample_selected(
-            sell_quantity_logits, sell_quantity_mask, sell_selected, deterministic=deterministic
-        )
         borrow_quantity, borrow_log_prob, borrow_entropy = _sample_selected(
             logits.borrow_quantity, masks.borrow_quantity, borrow_selected, deterministic=deterministic
         )
@@ -335,53 +297,31 @@ class ActionPolicy(nn.Module):
             buy_truck_selected,
             deterministic=deterministic,
         )
-        quantity_index = torch.zeros(batch_size, dtype=torch.long, device=action_index.device)
-        quantity_index = torch.where(buy_selected, buy_quantity, quantity_index)
-        quantity_index = torch.where(sell_selected, sell_quantity, quantity_index)
         quantity_index = torch.where(borrow_selected, borrow_quantity, quantity_index)
         quantity_index = torch.where(repay_selected, repay_quantity, quantity_index)
         quantity_index = torch.where(buy_truck_selected, truck_quantity, quantity_index)
         log_prob = (
             log_prob
-            + buy_quantity_log_prob
-            + sell_quantity_log_prob
             + borrow_log_prob
             + repay_log_prob
             + truck_log_prob
         )
         entropy = (
             entropy
-            + buy_quantity_entropy
-            + sell_quantity_entropy
             + borrow_entropy
             + repay_entropy
             + truck_entropy
         )
 
-        city_index, city_log_prob, city_entropy = _sample_selected(
-            logits.travel_city, masks.travel_city, travel_selected, deterministic=deterministic
+        travel_joint, travel_log_prob, travel_entropy = _sample_selected(
+            travel_flat, travel_mask_flat, travel_selected, deterministic=deterministic
         )
-        travel_transport_logits = _select_candidate(logits.travel_transport, city_index)
-        travel_transport_mask = _select_candidate(masks.travel_transport, city_index)
-        transport_index, transport_log_prob, transport_entropy = _sample_selected(
-            travel_transport_logits,
-            travel_transport_mask,
-            travel_selected,
-            deterministic=deterministic,
-        )
-        travel_fast_logits = _select_candidate(
-            _select_candidate(logits.travel_fast, city_index),
-            transport_index,
-        )
-        travel_fast_mask = _select_candidate(
-            _select_candidate(masks.travel_fast, city_index),
-            transport_index,
-        )
-        fast_index, fast_log_prob, fast_entropy = _sample_selected(
-            travel_fast_logits, travel_fast_mask, travel_selected, deterministic=deterministic
-        )
-        log_prob = log_prob + city_log_prob + transport_log_prob + fast_log_prob
-        entropy = entropy + city_entropy + transport_entropy + fast_entropy
+        travel_stride = self.spec.transport_count * 2
+        city_index = travel_joint // travel_stride
+        transport_index = (travel_joint % travel_stride) // 2
+        fast_index = travel_joint % 2
+        log_prob = log_prob + travel_log_prob
+        entropy = entropy + travel_entropy
 
         action = ActionBatch(
             action_index=action_index,
@@ -397,13 +337,9 @@ class ActionPolicy(nn.Module):
             entropy=entropy,
             head_entropies=ActionHeadEntropies(
                 action=action_entropy,
-                buy_product=buy_entropy,
-                sell_product=sell_entropy,
-                buy_quantity=buy_quantity_entropy,
-                sell_quantity=sell_quantity_entropy,
-                travel_city=city_entropy,
-                travel_transport=transport_entropy,
-                travel_fast=fast_entropy,
+                buy=buy_entropy,
+                sell=sell_entropy,
+                travel=travel_entropy,
                 borrow_quantity=borrow_entropy,
                 repay_quantity=repay_entropy,
                 buy_truck_quantity=truck_entropy,
@@ -429,33 +365,20 @@ class ActionPolicy(nn.Module):
         repay_selected = actions.action_index == _REPAY_ACTION_INDEX
         buy_truck_selected = actions.action_index == _BUY_TRUCK_ACTION_INDEX
 
+        quantity_count = len(QuantityBin)
+        buy_joint = actions.product_index * quantity_count + actions.quantity_index
+        sell_joint = actions.product_index * quantity_count + actions.quantity_index
+        buy_flat, buy_mask_flat = _flatten_joint(logits.buy, masks.buy)
+        sell_flat, sell_mask_flat = _flatten_joint(logits.sell, masks.sell)
         buy_log_prob, buy_entropy = _evaluate_selected(
-            logits.buy_product,
-            masks.buy_product,
-            actions.product_index,
-            buy_selected,
+            buy_flat, buy_mask_flat, buy_joint, buy_selected
         )
         sell_log_prob, sell_entropy = _evaluate_selected(
-            logits.sell_product,
-            masks.sell_product,
-            actions.product_index,
-            sell_selected,
+            sell_flat, sell_mask_flat, sell_joint, sell_selected
         )
         log_prob = log_prob + buy_log_prob + sell_log_prob
         entropy = entropy + buy_entropy + sell_entropy
 
-        buy_quantity_log_prob, buy_quantity_entropy = _evaluate_selected(
-            _select_candidate(logits.buy_quantity, actions.product_index),
-            _select_candidate(masks.buy_quantity, actions.product_index),
-            actions.quantity_index,
-            buy_selected,
-        )
-        sell_quantity_log_prob, sell_quantity_entropy = _evaluate_selected(
-            _select_candidate(logits.sell_quantity, actions.product_index),
-            _select_candidate(masks.sell_quantity, actions.product_index),
-            actions.quantity_index,
-            sell_selected,
-        )
         borrow_log_prob, borrow_entropy = _evaluate_selected(
             logits.borrow_quantity,
             masks.borrow_quantity,
@@ -476,47 +399,29 @@ class ActionPolicy(nn.Module):
         )
         log_prob = (
             log_prob
-            + buy_quantity_log_prob
-            + sell_quantity_log_prob
             + borrow_log_prob
             + repay_log_prob
             + truck_log_prob
         )
         entropy = (
             entropy
-            + buy_quantity_entropy
-            + sell_quantity_entropy
             + borrow_entropy
             + repay_entropy
             + truck_entropy
         )
 
-        city_log_prob, city_entropy = _evaluate_selected(
-            logits.travel_city,
-            masks.travel_city,
-            actions.city_index,
-            travel_selected,
+        travel_stride = self.spec.transport_count * 2
+        travel_joint = (
+            actions.city_index * travel_stride
+            + actions.transport_index * 2
+            + actions.fast_index
         )
-        transport_log_prob, transport_entropy = _evaluate_selected(
-            _select_candidate(logits.travel_transport, actions.city_index),
-            _select_candidate(masks.travel_transport, actions.city_index),
-            actions.transport_index,
-            travel_selected,
+        travel_flat, travel_mask_flat = _flatten_joint(logits.travel, masks.travel)
+        travel_log_prob, travel_entropy = _evaluate_selected(
+            travel_flat, travel_mask_flat, travel_joint, travel_selected
         )
-        fast_log_prob, fast_entropy = _evaluate_selected(
-            _select_candidate(
-                _select_candidate(logits.travel_fast, actions.city_index),
-                actions.transport_index,
-            ),
-            _select_candidate(
-                _select_candidate(masks.travel_fast, actions.city_index),
-                actions.transport_index,
-            ),
-            actions.fast_index,
-            travel_selected,
-        )
-        log_prob = log_prob + city_log_prob + transport_log_prob + fast_log_prob
-        entropy = entropy + city_entropy + transport_entropy + fast_entropy
+        log_prob = log_prob + travel_log_prob
+        entropy = entropy + travel_entropy
         return PolicyEvaluation(log_prob=log_prob, entropy=entropy)
 
 
@@ -643,6 +548,14 @@ def _select_candidate(values: Tensor, indices: Tensor) -> Tensor:
         *values.shape[2:],
     )
     return torch.gather(values, dim=1, index=expanded_index).squeeze(1)
+
+
+def _flatten_joint(logits: Tensor, valid: Tensor) -> tuple[Tensor, Tensor]:
+    """将联合动作参数展平为单个 Categorical 的候选维度。"""
+
+    if logits.ndim < 2 or valid.shape != logits.shape:
+        raise ValueError("联合动作 logits 与掩码形状不一致")
+    return logits.reshape(logits.size(0), -1), valid.reshape(valid.size(0), -1)
 
 
 def _masked_categorical(logits: Tensor, valid: Tensor) -> Categorical:
