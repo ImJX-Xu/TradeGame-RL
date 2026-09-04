@@ -50,6 +50,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=None,
         help="覆盖 TensorBoard 事件目录",
     )
+    dagger_bc = subcommands.add_parser(
+        "dagger-bc",
+        help="运行贪心教师、DAgger 和行为克隆，输出 BC 模型",
+    )
+    dagger_bc.add_argument("--config", type=Path, default=None, help="DAgger+BC TOML 配置路径")
+    dagger_bc.add_argument("--expert-episodes", type=int, default=None)
+    dagger_bc.add_argument("--dagger-rounds", type=int, default=None)
+    dagger_bc.add_argument("--checkpoint", type=Path, default=None, help="BC 模型输出路径")
+    dagger_bc.add_argument("--tensorboard-logdir", type=Path, default=None)
+    finetune = subcommands.add_parser(
+        "ppo-finetune",
+        help="从已有 Actor-Critic 模型继续 PPO 训练",
+    )
+    finetune.add_argument("--model", type=Path, required=True, help="输入模型 checkpoint")
+    finetune.add_argument("--config", type=Path, default=None, help="PPO TOML 配置路径")
+    finetune.add_argument("--updates", type=int, default=None)
+    finetune.add_argument("--rollout-steps", type=int, default=None)
+    finetune.add_argument("--checkpoint", type=Path, default=None, help="finetune 后输出路径")
+    finetune.add_argument("--tensorboard-logdir", type=Path, default=None)
     greedy = subcommands.add_parser("greedy", help="运行市场感知的贪心经营基准")
     greedy.add_argument("--seed", dest="seeds", type=int, action="append", default=None)
     greedy.add_argument("--episodes", type=int, default=16, help="未指定 --seed 时运行的局数")
@@ -64,6 +83,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if arguments.command == "dagger-ppo":
         _run_dagger_ppo(parser, arguments)
+        return 0
+    if arguments.command == "dagger-bc":
+        _run_dagger_bc(parser, arguments)
+        return 0
+    if arguments.command == "ppo-finetune":
+        _run_ppo_finetune(parser, arguments)
         return 0
     if arguments.command == "greedy":
         _run_greedy(arguments)
@@ -117,6 +142,39 @@ def _run_dagger_ppo(parser: argparse.ArgumentParser, arguments: argparse.Namespa
         dagger_rounds=arguments.dagger_rounds,
         checkpoint_path=arguments.checkpoint,
         tensorboard_log_dir=arguments.tensorboard_logdir,
+    )
+
+
+def _run_dagger_bc(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> None:
+    try:
+        from trade_game.learning.cli import run_dagger_bc
+    except ModuleNotFoundError as error:
+        if error.name in {"torch", "tensorboard"}:
+            parser.error("DAgger+BC 训练需要安装可选依赖：pip install -e \".[learning]\"")
+        raise
+    run_dagger_bc(
+        config_path=arguments.config,
+        expert_episodes=arguments.expert_episodes,
+        dagger_rounds=arguments.dagger_rounds,
+        checkpoint_path=arguments.checkpoint,
+        tensorboard_log_dir=arguments.tensorboard_logdir,
+    )
+
+
+def _run_ppo_finetune(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> None:
+    try:
+        from trade_game.learning.cli import run_ppo_finetune
+    except ModuleNotFoundError as error:
+        if error.name in {"torch", "tensorboard"}:
+            parser.error("PPO finetune 需要安装可选依赖：pip install -e \".[learning]\"")
+        raise
+    run_ppo_finetune(
+        model_path=arguments.model,
+        config_path=arguments.config,
+        checkpoint_path=arguments.checkpoint,
+        tensorboard_log_dir=arguments.tensorboard_logdir,
+        updates=arguments.updates,
+        rollout_steps=arguments.rollout_steps,
     )
 
 

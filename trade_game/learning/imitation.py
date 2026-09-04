@@ -263,8 +263,8 @@ def train_behavior_cloning(
     )
 
 
-def train_dagger_ppo(config: DAggerPPOTrainingConfig) -> DAggerPPOTrainingResult:
-    """执行贪心教师、DAgger、行为克隆和 PPO 微调。"""
+def train_dagger_bc(config: DAggerPPOTrainingConfig) -> DAggerTrainingResult:
+    """独立执行贪心教师、DAgger 和行为克隆，返回 BC 模型。"""
 
     ppo_config = config.ppo
     if config.dagger.expert_episodes <= 0:
@@ -377,14 +377,20 @@ def train_dagger_ppo(config: DAggerPPOTrainingConfig) -> DAggerPPOTrainingResult
         if writer is not None:
             writer.close()
 
-    dagger_result = DAggerTrainingResult(
+    return DAggerTrainingResult(
         model=model,
         dataset_size=len(dataset),
         initial_behavior_cloning=initial_bc,
         initial_evaluation=initial_evaluation,
         rounds=tuple(rounds),
     )
-    ppo_result = train_ppo(ppo_config, initial_model=model)
+
+
+def train_dagger_ppo(config: DAggerPPOTrainingConfig) -> DAggerPPOTrainingResult:
+    """兼容旧入口：执行 DAgger+BC 后继续 PPO。"""
+
+    dagger_result = train_dagger_bc(config)
+    ppo_result = train_ppo(config.ppo, initial_model=dagger_result.model)
     return DAggerPPOTrainingResult(dagger=dagger_result, ppo=ppo_result)
 
 
@@ -540,5 +546,6 @@ __all__ = [
     "ImitationExample",
     "load_dagger_ppo_config",
     "train_behavior_cloning",
+    "train_dagger_bc",
     "train_dagger_ppo",
 ]

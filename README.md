@@ -352,6 +352,8 @@ python -m trade_game train `
   --tensorboard-logdir runs/ppo_quick/tensorboard
 ```
 
+`train` 的 `--checkpoint` 保存 PPO 模型；已有模型继续训练使用 `ppo-finetune`，输入模型通过 `--model` 指定，输出通过 `--checkpoint` 指定，避免覆盖输入文件。
+
 ### 贪心-DAgger-PPO 训练
 
 这条路线依次经过贪心示范、BC 初始化、DAgger 状态聚合和 PPO 回报优化。前半段建立经营策略先验，后半段使用环境 reward 学习长期决策。
@@ -391,9 +393,20 @@ DAgger 完成后，训练器复用已经初始化的 Actor-Critic 参数继续 P
 DAgger、BC 与 PPO 的组合流程仍保留，使用专用配置：
 
 ```powershell
-python -m trade_game dagger-ppo `
+python -m trade_game dagger-bc `
   --config trade_game/learning/configs/dagger_ppo_v1_1m.toml
 ```
+
+只运行 DAgger+BC 时，可通过 `--checkpoint` 保存 BC 模型；之后使用 PPO finetune：
+
+```powershell
+python -m trade_game ppo-finetune `
+  --model runs/dagger_bc/model.pt `
+  --config trade_game/learning/configs/ppo_default.toml `
+  --checkpoint runs/ppo_finetune/ppo.pt
+```
+
+旧的 `dagger-ppo` 命令仍作为兼容包装，表示 DAgger+BC 完成后立即继续 PPO。
 
 ### 贪心经营基准
 

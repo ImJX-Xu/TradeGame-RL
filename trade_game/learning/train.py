@@ -170,16 +170,82 @@ def save_checkpoint(
     """保存模型、优化器、训练配置和已记录指标。"""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
+    payload = _model_checkpoint_payload(result.model, config=config)
+    payload.update(
         {
-            "model": result.model.state_dict(),
             "optimizer": trainer.optimizer.state_dict(),
-            "observation_spec": result.model.encoder.spec,
-            "training_config": asdict(config),
             "snapshots": result.snapshots,
-        },
-        path,
+        }
     )
+    torch.save(payload, path)
+
+
+def save_model_checkpoint(
+    path: Path,
+    model: ActorCritic,
+    *,
+    config: PPOTrainingConfig | None = None,
+) -> None:
+    """只保存模型参数和重建模型所需元数据，供 BC/DAgger 后续 PPO 使用。"""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(_model_checkpoint_payload(model, config=config), path)
+
+
+def load_checkpoint(
+    path: Path,
+    *,
+    device: torch.device | str = "cpu",
+) -> ActorCritic:
+    """从 checkpoint 重建 Actor-Critic 模型并加载参数。"""
+
+    if not path.is_file():
+        raise FileNotFoundError(f"找不到 checkpoint：{path}")
+    try:
+        payload = torch.load(path, map_location=device, weights_only=False)
+    except TypeError:
+        # 兼容尚未提供 ``weights_only`` 参数的旧版 PyTorch。
+        payload = torch.load(path, map_location=device)
+    if not isinstance(payload, dict) or "model" not in payload:
+        raise ValueError("checkpoint 缺少 model 参数")
+    spec = payload.get("observation_spec")
+    if not isinstance(spec, ObservationSpec):
+        raise ValueError("checkpoint 缺少有效的 observation_spec")
+    training_config = payload.get("training_config") or {}
+    encoder_values = training_config.get("encoder", {})
+    if not isinstance(encoder_values, dict):
+        encoder_values = {}
+    model = ActorCritic(
+        spec,
+        encoder_config=StateEncoderConfig(**encoder_values),
+    )
+    model.load_state_dict(payload["model"])
+    return model.to(device)
+
+
+def train_ppo_finetune(
+    config: PPOTrainingConfig,
+    checkpoint_path: Path,
+) -> TrainingResult:
+    """加载已有模型后继续执行 PPO 训练。"""
+
+    model = load_checkpoint(checkpoint_path, device=config.device)
+    return train_ppo(config, initial_model=model)
+
+
+def _model_checkpoint_payload(
+    model: ActorCritic,
+    *,
+    config: PPOTrainingConfig | None,
+) -> dict[str, object]:
+    return {
+        "model": model.state_dict(),
+        "observation_spec": model.encoder.spec,
+        "training_config": asdict(config) if config is not None else {
+            "encoder": asdict(model.encoder.config),
+        },
+        "checkpoint_kind": "actor_critic_model",
+    }
 
 
 __all__ = [
@@ -187,6 +253,9 @@ __all__ = [
     "TrainingResult",
     "TrainingSnapshot",
     "load_training_config",
+    "load_checkpoint",
+    "save_model_checkpoint",
     "save_checkpoint",
     "train_ppo",
+    "train_ppo_finetune",
 ]

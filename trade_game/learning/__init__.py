@@ -39,6 +39,7 @@ from .imitation import (
     ImitationExample,
     load_dagger_ppo_config,
     train_behavior_cloning,
+    train_dagger_bc,
     train_dagger_ppo,
 )
 from .train import (
@@ -46,8 +47,11 @@ from .train import (
     TrainingResult,
     TrainingSnapshot,
     load_training_config,
+    load_checkpoint,
     save_checkpoint,
+    save_model_checkpoint,
     train_ppo,
+    train_ppo_finetune,
 )
 
 __all__ = [
@@ -90,10 +94,14 @@ __all__ = [
     "TrainingSnapshot",
     "evaluate_policy",
     "load_training_config",
+    "load_checkpoint",
     "play_policy",
     "save_checkpoint",
+    "save_model_checkpoint",
     "train_ppo",
+    "train_ppo_finetune",
     "load_dagger_ppo_config",
     "train_behavior_cloning",
+    "train_dagger_bc",
     "train_dagger_ppo",
 ]
